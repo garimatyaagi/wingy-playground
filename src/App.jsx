@@ -299,11 +299,6 @@ export default function App() {
             <h1>Mini Planner</h1>
             <span className="sub">Lightweight day planner for makers</span>
           </div>
-          <div className="topRight">
-            <SignedIn>
-              <UserButton />
-            </SignedIn>
-          </div>
         </div>
 
         <SignedOut>
@@ -311,25 +306,30 @@ export default function App() {
         </SignedOut>
 
         <SignedIn>
-          <div className="nav" role="tablist" aria-label="Mini Planner pages">
-            <button
-              type="button"
-              className={activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"}
-              onClick={() => setActivePage("tasks")}
-              role="tab"
-              aria-selected={activePage === "tasks"}
-            >
-              Tasks
-            </button>
-            <button
-              type="button"
-              className={activePage === "plan" ? "navBtn navBtnActive" : "navBtn"}
-              onClick={() => setActivePage("plan")}
-              role="tab"
-              aria-selected={activePage === "plan"}
-            >
-              Plan My Day
-            </button>
+          <div className="mainHeaderRow">
+            <div className="nav" role="tablist" aria-label="Mini Planner pages">
+              <button
+                type="button"
+                className={activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"}
+                onClick={() => setActivePage("tasks")}
+                role="tab"
+                aria-selected={activePage === "tasks"}
+              >
+                Tasks
+              </button>
+              <button
+                type="button"
+                className={activePage === "plan" ? "navBtn navBtnActive" : "navBtn"}
+                onClick={() => setActivePage("plan")}
+                role="tab"
+                aria-selected={activePage === "plan"}
+              >
+                Plan My Day
+              </button>
+            </div>
+            <div className="headerUser">
+              <UserButton />
+            </div>
           </div>
 
           {activePage === "tasks" ? (

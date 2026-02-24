@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  SignedIn,
-  SignedOut,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from "@clerk/clerk-react";
+import { SignedIn, SignedOut, SignIn, SignUp, UserButton } from "@clerk/clerk-react";
 
 const STORAGE_KEY = "mini_planner_tasks_v1";
 
@@ -292,6 +286,10 @@ export default function App() {
   }
 
   const dayPlan = useMemo(() => buildDayPlan(tasks), [tasks]);
+  const totalEstimatedMinutes = useMemo(
+    () => tasks.reduce((sum, t) => sum + computeTaskTotalMinutes(t), 0),
+    [tasks]
+  );
 
   return (
     <div className="appShell">
@@ -301,37 +299,7 @@ export default function App() {
             <h1>Mini Planner</h1>
             <span className="sub">Lightweight day planner for makers</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div className="nav" role="tablist" aria-label="Mini Planner pages">
-              <button
-                type="button"
-                className={
-                  activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"
-                }
-                onClick={() => setActivePage("tasks")}
-                role="tab"
-                aria-selected={activePage === "tasks"}
-              >
-                Tasks
-              </button>
-              <button
-                type="button"
-                className={
-                  activePage === "plan" ? "navBtn navBtnActive" : "navBtn"
-                }
-                onClick={() => setActivePage("plan")}
-                role="tab"
-                aria-selected={activePage === "plan"}
-              >
-                Plan My Day
-              </button>
-            </div>
-            <SignedOut>
-              <div style={{ display: "flex", gap: 6 }}>
-                <SignInButton mode="modal" />
-                <SignUpButton mode="modal" />
-              </div>
-            </SignedOut>
+          <div className="topRight">
             <SignedIn>
               <UserButton />
             </SignedIn>
@@ -339,46 +307,85 @@ export default function App() {
         </div>
 
         <SignedOut>
-          <div className="card" style={{ gridColumn: "1 / -1" }}>
-            <p className="mutedText">
-              Sign in to save your Mini Planner and sync tasks across sessions.
-            </p>
-            <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
-              <SignInButton mode="modal">
-                <button type="button" className="button">
-                  Sign in
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button type="button" className="buttonLight">
-                  Create account
-                </button>
-              </SignUpButton>
-            </div>
-          </div>
+          <AuthPage />
         </SignedOut>
 
         <SignedIn>
+          <div className="nav" role="tablist" aria-label="Mini Planner pages">
+            <button
+              type="button"
+              className={activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"}
+              onClick={() => setActivePage("tasks")}
+              role="tab"
+              aria-selected={activePage === "tasks"}
+            >
+              Tasks
+            </button>
+            <button
+              type="button"
+              className={activePage === "plan" ? "navBtn navBtnActive" : "navBtn"}
+              onClick={() => setActivePage("plan")}
+              role="tab"
+              aria-selected={activePage === "plan"}
+            >
+              Plan My Day
+            </button>
+          </div>
+
           {activePage === "tasks" ? (
             <>
               <div className="card">
-                <form onSubmit={handleAddTask}>
-                  <div className="row">
+                <div className="summaryRow">
+                  <div className="summaryCard">
+                    <div className="summaryLabel">Total tasks</div>
+                    <div className="summaryValue">{counts.all}</div>
+                  </div>
+                  <div className="summaryCard">
+                    <div className="summaryLabel">Pending</div>
+                    <div className="summaryValue">{counts.pending}</div>
+                  </div>
+                  <div className="summaryCard">
+                    <div className="summaryLabel">Completed</div>
+                    <div className="summaryValue">{counts.completed}</div>
+                  </div>
+                  <div className="summaryCard">
+                    <div className="summaryLabel">Total effort</div>
+                    <div className="summaryValue">
+                      {formatDuration(totalEstimatedMinutes)}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div className="mutedText">Summary of your tasks</div>
+                  <form
+                    onSubmit={handleAddTask}
+                    style={{ display: "flex", gap: 8, alignItems: "center" }}
+                  >
                     <input
                       className="input"
-                      placeholder="Capture a task…"
+                      placeholder="Add a task title…"
                       value={newTitle}
                       onChange={(e) => setNewTitle(e.target.value)}
+                      style={{ maxWidth: 260 }}
                     />
                     <button
                       className="button"
                       type="submit"
                       disabled={!newTitle.trim()}
                     >
-                      Create task
+                      Add task
                     </button>
-                  </div>
-                </form>
+                  </form>
+                </div>
 
                 <div className="tabs" role="tablist" aria-label="Task filters">
                   <TaskFilterTab
@@ -398,24 +405,66 @@ export default function App() {
                   />
                 </div>
 
-                <ul className="list">
+                <div className="taskTableWrapper">
                   {filteredTasks.length === 0 ? (
-                    <li className="mutedText">
+                    <div style={{ padding: 12 }} className="mutedText">
                       {taskFilter === "completed"
                         ? "No completed tasks yet."
                         : "No tasks here yet. Start by creating one above."}
-                    </li>
+                    </div>
                   ) : (
-                    filteredTasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        selected={task.id === selectedTaskId}
-                        onSelect={() => setSelectedTaskId(task.id)}
-                      />
-                    ))
+                    <table className="taskTable">
+                      <thead>
+                        <tr>
+                          <th>Title</th>
+                          <th>Status</th>
+                          <th>Priority</th>
+                          <th>Due</th>
+                          <th>Effort</th>
+                          <th>Progress</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredTasks.map((task) => {
+                          const totalMinutes = computeTaskTotalMinutes(task);
+                          const doneCount = Array.isArray(task.scope)
+                            ? task.scope.filter((s) => s.done).length
+                            : 0;
+                          const totalCount = Array.isArray(task.scope)
+                            ? task.scope.length
+                            : 0;
+
+                          return (
+                            <tr
+                              key={task.id}
+                              onClick={() => setSelectedTaskId(task.id)}
+                              className={
+                                task.id === selectedTaskId
+                                  ? "taskTableRowActive"
+                                  : undefined
+                              }
+                            >
+                              <td>{task.title || "Untitled task"}</td>
+                              <td>{task.status}</td>
+                              <td>{task.priority}</td>
+                              <td>
+                                {task.dueDate
+                                  ? formatDateLabel(task.dueDate)
+                                  : "—"}
+                              </td>
+                              <td>{formatDuration(totalMinutes)}</td>
+                              <td>
+                                {totalCount > 0
+                                  ? `${doneCount}/${totalCount}`
+                                  : "No scope"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   )}
-                </ul>
+                </div>
               </div>
 
               <div className="sidePanel">
@@ -561,45 +610,6 @@ function TaskFilterTab({ label, active, onClick }) {
   );
 }
 
-function TaskRow({ task, selected, onSelect }) {
-  const totalMinutes = computeTaskTotalMinutes(task);
-  const doneCount = Array.isArray(task.scope)
-    ? task.scope.filter((s) => s.done).length
-    : 0;
-  const totalCount = Array.isArray(task.scope) ? task.scope.length : 0;
-
-  return (
-    <li
-      className="taskRow"
-      onClick={onSelect}
-      style={selected ? { borderColor: "#111827" } : undefined}
-    >
-      <div>
-        <h3 className="taskTitle">{task.title || "Untitled task"}</h3>
-        <div className="metaLine">
-          <span className="pill pillMuted">{task.status}</span>
-          <span className="pill">
-            {formatDuration(totalMinutes)} total
-          </span>
-          <span className="pill pillMuted">Priority: {task.priority}</span>
-          {task.dueDate ? (
-            <span className="pill pillMuted">
-              Due {formatDateLabel(task.dueDate)}
-            </span>
-          ) : null}
-          {totalCount > 0 ? (
-            <span className="pill pillMuted">
-              {doneCount}/{totalCount} subtasks
-            </span>
-          ) : (
-            <span className="pill pillMuted">No scope yet</span>
-          )}
-        </div>
-      </div>
-    </li>
-  );
-}
-
 function TaskDetailPanel({
   task,
   onMetaChange,
@@ -621,7 +631,7 @@ function TaskDetailPanel({
           <h2>No task selected</h2>
         </div>
         <p className="mutedText">
-          Create a task on the left, then click it to open the detail panel.
+          Select a task from the table or create a new one to see details here.
         </p>
       </div>
     );
@@ -833,6 +843,68 @@ function PlanMyDayView({ plan, onDone }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function AuthPage() {
+  const [mode, setMode] = useState("sign-in");
+
+  const appearance = {
+    variables: {
+      colorPrimary: "#105666",
+      colorText: "#0a3323",
+      colorBackground: "#ffffff",
+      borderRadius: "14px",
+      fontSize: "14px",
+    },
+  };
+
+  return (
+    <div className="authShell">
+      <div className="authHero">
+        <div>
+          <h2>Plan your maker days with intention.</h2>
+          <p>
+            Mini Planner turns fuzzy tasks into a scoped plan with time blocks
+            you can actually finish today.
+          </p>
+        </div>
+        <p style={{ fontSize: 12, marginTop: 16 }}>
+          Sign in to keep your tasks synced securely to your account.
+        </p>
+      </div>
+      <div className="authCard">
+        <div className="authTabs">
+          <button
+            type="button"
+            className={
+              mode === "sign-in"
+                ? "authTabBtn authTabBtnActive"
+                : "authTabBtn"
+            }
+            onClick={() => setMode("sign-in")}
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            className={
+              mode === "sign-up"
+                ? "authTabBtn authTabBtnActive"
+                : "authTabBtn"
+            }
+            onClick={() => setMode("sign-up")}
+          >
+            Create account
+          </button>
+        </div>
+        {mode === "sign-in" ? (
+          <SignIn routing="virtual" appearance={appearance} />
+        ) : (
+          <SignUp routing="virtual" appearance={appearance} />
+        )}
+      </div>
     </div>
   );
 }

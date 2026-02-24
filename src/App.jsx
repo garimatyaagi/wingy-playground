@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/clerk-react";
 
 const STORAGE_KEY = "mini_planner_tasks_v1";
 
@@ -294,202 +301,247 @@ export default function App() {
             <h1>Mini Planner</h1>
             <span className="sub">Lightweight day planner for makers</span>
           </div>
-          <div className="nav" role="tablist" aria-label="Mini Planner pages">
-            <button
-              type="button"
-              className={
-                activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"
-              }
-              onClick={() => setActivePage("tasks")}
-              role="tab"
-              aria-selected={activePage === "tasks"}
-            >
-              Tasks
-            </button>
-            <button
-              type="button"
-              className={
-                activePage === "plan" ? "navBtn navBtnActive" : "navBtn"
-              }
-              onClick={() => setActivePage("plan")}
-              role="tab"
-              aria-selected={activePage === "plan"}
-            >
-              Plan My Day
-            </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="nav" role="tablist" aria-label="Mini Planner pages">
+              <button
+                type="button"
+                className={
+                  activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"
+                }
+                onClick={() => setActivePage("tasks")}
+                role="tab"
+                aria-selected={activePage === "tasks"}
+              >
+                Tasks
+              </button>
+              <button
+                type="button"
+                className={
+                  activePage === "plan" ? "navBtn navBtnActive" : "navBtn"
+                }
+                onClick={() => setActivePage("plan")}
+                role="tab"
+                aria-selected={activePage === "plan"}
+              >
+                Plan My Day
+              </button>
+            </div>
+            <SignedOut>
+              <div style={{ display: "flex", gap: 6 }}>
+                <SignInButton mode="modal" />
+                <SignUpButton mode="modal" />
+              </div>
+            </SignedOut>
+            <SignedIn>
+              <UserButton />
+            </SignedIn>
           </div>
         </div>
 
-        {activePage === "tasks" ? (
-          <>
-            <div className="card">
-              <form onSubmit={handleAddTask}>
-                <div className="row">
-                  <input
-                    className="input"
-                    placeholder="Capture a task…"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                  />
-                  <button className="button" type="submit" disabled={!newTitle.trim()}>
-                    Create task
-                  </button>
-                </div>
-              </form>
+        <SignedOut>
+          <div className="card" style={{ gridColumn: "1 / -1" }}>
+            <p className="mutedText">
+              Sign in to save your Mini Planner and sync tasks across sessions.
+            </p>
+            <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+              <SignInButton mode="modal">
+                <button type="button" className="button">
+                  Sign in
+                </button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button type="button" className="buttonLight">
+                  Create account
+                </button>
+              </SignUpButton>
+            </div>
+          </div>
+        </SignedOut>
 
-              <div className="tabs" role="tablist" aria-label="Task filters">
-                <TaskFilterTab
-                  label={`All (${counts.all})`}
-                  active={taskFilter === "all"}
-                  onClick={() => setTaskFilter("all")}
-                />
-                <TaskFilterTab
-                  label={`Pending (${counts.pending})`}
-                  active={taskFilter === "pending"}
-                  onClick={() => setTaskFilter("pending")}
-                />
-                <TaskFilterTab
-                  label={`Completed (${counts.completed})`}
-                  active={taskFilter === "completed"}
-                  onClick={() => setTaskFilter("completed")}
-                />
+        <SignedIn>
+          {activePage === "tasks" ? (
+            <>
+              <div className="card">
+                <form onSubmit={handleAddTask}>
+                  <div className="row">
+                    <input
+                      className="input"
+                      placeholder="Capture a task…"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                    />
+                    <button
+                      className="button"
+                      type="submit"
+                      disabled={!newTitle.trim()}
+                    >
+                      Create task
+                    </button>
+                  </div>
+                </form>
+
+                <div className="tabs" role="tablist" aria-label="Task filters">
+                  <TaskFilterTab
+                    label={`All (${counts.all})`}
+                    active={taskFilter === "all"}
+                    onClick={() => setTaskFilter("all")}
+                  />
+                  <TaskFilterTab
+                    label={`Pending (${counts.pending})`}
+                    active={taskFilter === "pending"}
+                    onClick={() => setTaskFilter("pending")}
+                  />
+                  <TaskFilterTab
+                    label={`Completed (${counts.completed})`}
+                    active={taskFilter === "completed"}
+                    onClick={() => setTaskFilter("completed")}
+                  />
+                </div>
+
+                <ul className="list">
+                  {filteredTasks.length === 0 ? (
+                    <li className="mutedText">
+                      {taskFilter === "completed"
+                        ? "No completed tasks yet."
+                        : "No tasks here yet. Start by creating one above."}
+                    </li>
+                  ) : (
+                    filteredTasks.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        selected={task.id === selectedTaskId}
+                        onSelect={() => setSelectedTaskId(task.id)}
+                      />
+                    ))
+                  )}
+                </ul>
               </div>
 
-              <ul className="list">
-                {filteredTasks.length === 0 ? (
-                  <li className="mutedText">
-                    {taskFilter === "completed"
-                      ? "No completed tasks yet."
-                      : "No tasks here yet. Start by creating one above."}
-                  </li>
-                ) : (
-                  filteredTasks.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      selected={task.id === selectedTaskId}
-                      onSelect={() => setSelectedTaskId(task.id)}
-                    />
-                  ))
-                )}
-              </ul>
-            </div>
-
-            <div className="sidePanel">
-              <div className="card">
-                <TaskDetailPanel
-                  task={selectedTask}
-                  onMetaChange={(field, value) => {
-                    if (!selectedTask) return;
-                    updateTask(selectedTask.id, (t) => ({ ...t, [field]: value }));
-                  }}
-                  onToggleScopeDone={(scopeId) => {
-                    if (!selectedTask) return;
-                    updateTask(
-                      selectedTask.id,
-                      (t) => ({
+              <div className="sidePanel">
+                <div className="card">
+                  <TaskDetailPanel
+                    task={selectedTask}
+                    onMetaChange={(field, value) => {
+                      if (!selectedTask) return;
+                      updateTask(selectedTask.id, (t) => ({ ...t, [field]: value }));
+                    }}
+                    onToggleScopeDone={(scopeId) => {
+                      if (!selectedTask) return;
+                      updateTask(
+                        selectedTask.id,
+                        (t) => ({
+                          ...t,
+                          scope: (t.scope ?? []).map((s) =>
+                            s.id === scopeId ? { ...s, done: !s.done } : s
+                          ),
+                        }),
+                        { syncStatus: true }
+                      );
+                    }}
+                    onScopeTextChange={(scopeId, text) => {
+                      if (!selectedTask) return;
+                      updateTask(selectedTask.id, (t) => ({
                         ...t,
                         scope: (t.scope ?? []).map((s) =>
-                          s.id === scopeId ? { ...s, done: !s.done } : s
+                          s.id === scopeId ? { ...s, text } : s
                         ),
-                      }),
-                      { syncStatus: true }
-                    );
-                  }}
-                  onScopeTextChange={(scopeId, text) => {
-                    if (!selectedTask) return;
-                    updateTask(selectedTask.id, (t) => ({
-                      ...t,
-                      scope: (t.scope ?? []).map((s) =>
-                        s.id === scopeId ? { ...s, text } : s
-                      ),
-                    }));
-                  }}
-                  onScopeMinutesChange={(scopeId, minutes) => {
-                    if (!selectedTask) return;
-                    const safeMinutes = Number.isNaN(minutes) ? 0 : minutes;
-                    updateTask(selectedTask.id, (t) => ({
-                      ...t,
-                      scope: (t.scope ?? []).map((s) =>
-                        s.id === scopeId ? { ...s, minutes: safeMinutes } : s
-                      ),
-                    }));
-                  }}
-                  onAddScopeItem={() => {
-                    if (!selectedTask) return;
-                    updateTask(selectedTask.id, (t) => ({
-                      ...t,
-                      scope: [
-                        ...(t.scope ?? []),
+                      }));
+                    }}
+                    onScopeMinutesChange={(scopeId, minutes) => {
+                      if (!selectedTask) return;
+                      const safeMinutes = Number.isNaN(minutes) ? 0 : minutes;
+                      updateTask(selectedTask.id, (t) => ({
+                        ...t,
+                        scope: (t.scope ?? []).map((s) =>
+                          s.id === scopeId ? { ...s, minutes: safeMinutes } : s
+                        ),
+                      }));
+                    }}
+                    onAddScopeItem={() => {
+                      if (!selectedTask) return;
+                      updateTask(selectedTask.id, (t) => ({
+                        ...t,
+                        scope: [
+                          ...(t.scope ?? []),
+                          {
+                            id: makeId(),
+                            text: "New subtask",
+                            minutes: 15,
+                            done: false,
+                          },
+                        ],
+                      }));
+                    }}
+                    onRemoveScopeItem={(scopeId) => {
+                      if (!selectedTask) return;
+                      updateTask(
+                        selectedTask.id,
+                        (t) => ({
+                          ...t,
+                          scope: (t.scope ?? []).filter((s) => s.id !== scopeId),
+                        }),
+                        { syncStatus: true }
+                      );
+                    }}
+                    onGenerateScope={() => {
+                      if (!selectedTask) return;
+                      updateTask(
+                        selectedTask.id,
+                        (t) => ({
+                          ...t,
+                          scope: buildScopeFromTemplate(t.title ?? ""),
+                          scopeLocked: false,
+                        }),
+                        { syncStatus: true }
+                      );
+                    }}
+                    onAcceptScope={() => {
+                      if (!selectedTask) return;
+                      updateTask(
+                        selectedTask.id,
+                        (t) => ({ ...t, scopeLocked: true }),
                         {
-                          id: makeId(),
-                          text: "New subtask",
-                          minutes: 15,
-                          done: false,
-                        },
-                      ],
-                    }));
-                  }}
-                  onRemoveScopeItem={(scopeId) => {
-                    if (!selectedTask) return;
-                    updateTask(
-                      selectedTask.id,
-                      (t) => ({
-                        ...t,
-                        scope: (t.scope ?? []).filter((s) => s.id !== scopeId),
-                      }),
-                      { syncStatus: true }
-                    );
-                  }}
-                  onGenerateScope={() => {
-                    if (!selectedTask) return;
-                    updateTask(
-                      selectedTask.id,
-                      (t) => ({
-                        ...t,
-                        scope: buildScopeFromTemplate(t.title ?? ""),
-                        scopeLocked: false,
-                      }),
-                      { syncStatus: true }
-                    );
-                  }}
-                  onAcceptScope={() => {
-                    if (!selectedTask) return;
-                    updateTask(selectedTask.id, (t) => ({ ...t, scopeLocked: true }), {
-                      syncStatus: true,
-                    });
-                  }}
-                  onEditScope={() => {
-                    if (!selectedTask) return;
-                    updateTask(selectedTask.id, (t) => ({ ...t, scopeLocked: false }), {
-                      syncStatus: true,
-                    });
-                  }}
-                  onSaveDraft={handleSaveDraft}
-                  saveMessage={saveMessage}
-                />
+                          syncStatus: true,
+                        }
+                      );
+                    }}
+                    onEditScope={() => {
+                      if (!selectedTask) return;
+                      updateTask(
+                        selectedTask.id,
+                        (t) => ({ ...t, scopeLocked: false }),
+                        {
+                          syncStatus: true,
+                        }
+                      );
+                    }}
+                    onSaveDraft={handleSaveDraft}
+                    saveMessage={saveMessage}
+                  />
+                </div>
               </div>
+            </>
+          ) : (
+            <div className="card" style={{ gridColumn: "1 / -1" }}>
+              <PlanMyDayView
+                plan={dayPlan}
+                onDone={(item) => {
+                  updateTask(
+                    item.taskId,
+                    (t) => ({
+                      ...t,
+                      scope: (t.scope ?? []).map((s) =>
+                        s.id === item.scopeId ? { ...s, done: true } : s
+                      ),
+                    }),
+                    { syncStatus: true }
+                  );
+                }}
+              />
             </div>
-          </>
-        ) : (
-          <div className="card" style={{ gridColumn: "1 / -1" }}>
-            <PlanMyDayView
-              plan={dayPlan}
-              onDone={(item) => {
-                updateTask(
-                  item.taskId,
-                  (t) => ({
-                    ...t,
-                    scope: (t.scope ?? []).map((s) =>
-                      s.id === item.scopeId ? { ...s, done: true } : s
-                    ),
-                  }),
-                  { syncStatus: true }
-                );
-              }}
-            />
-          </div>
-        )}
+          )}
+        </SignedIn>
       </div>
     </div>
   );

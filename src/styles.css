@@ -739,6 +739,13 @@ a {
   margin-bottom: 8px;
 }
 
+.goalTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .goalTitleInput {
   border: 1px solid var(--border);
   font-size: 16px;
@@ -756,6 +763,23 @@ a {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.goalHeaderIcons {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.iconMiniBtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.deleteMiniBtn:hover {
+  border-color: #9e1e1e;
+  color: #9e1e1e;
 }
 
 .goalSectionTabs {

@@ -221,6 +221,20 @@ export default function App() {
     }));
   }
 
+  function removeGoal(goalId) {
+    setGoals((prev) => prev.filter((goal) => goal.id !== goalId));
+    setGoalSections((prev) => {
+      const next = { ...prev };
+      delete next[goalId];
+      return next;
+    });
+    setGoalTitleEditing((prev) => {
+      const next = { ...prev };
+      delete next[goalId];
+      return next;
+    });
+  }
+
   function getBreakdownEndpoints() {
     const base = import.meta.env.VITE_API_BASE_URL?.trim();
     const normalizedBase = base ? base.replace(/\/+$/, "") : "";
@@ -436,29 +450,53 @@ export default function App() {
                 return (
                   <div className="card goalTableCard" key={goal.id}>
                     <div className="goalHeader">
-                      {goalTitleEditing[goal.id] ? (
-                        <input
-                          className="textInput goalTitleInput"
-                          autoFocus
-                          value={goal.title}
-                          onChange={(e) =>
-                            updateGoal(goal.id, (g) => ({ ...g, title: e.target.value }))
-                          }
-                          onBlur={() => stopGoalTitleEdit(goal.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              stopGoalTitleEdit(goal.id);
+                      <div className="goalTitleRow">
+                        {goalTitleEditing[goal.id] ? (
+                          <input
+                            className="textInput goalTitleInput"
+                            autoFocus
+                            value={goal.title}
+                            onChange={(e) =>
+                              updateGoal(goal.id, (g) => ({ ...g, title: e.target.value }))
                             }
-                          }}
-                        />
-                      ) : (
-                        <h3
-                          className="goalTitleStatic"
-                          onDoubleClick={() => startGoalTitleEdit(goal.id)}
-                        >
-                          {goal.title}
-                        </h3>
-                      )}
+                            onBlur={() => stopGoalTitleEdit(goal.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                stopGoalTitleEdit(goal.id);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <h3
+                            className="goalTitleStatic"
+                            onDoubleClick={() => startGoalTitleEdit(goal.id)}
+                          >
+                            {goal.title}
+                          </h3>
+                        )}
+                        {!goalTitleEditing[goal.id] ? (
+                          <div className="goalHeaderIcons">
+                            <button
+                              type="button"
+                              className="iconBtn iconMiniBtn"
+                              aria-label="Edit goal"
+                              title="Edit goal"
+                              onClick={() => startGoalTitleEdit(goal.id)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              className="iconBtn iconMiniBtn deleteMiniBtn"
+                              aria-label="Delete goal"
+                              title="Delete goal"
+                              onClick={() => removeGoal(goal.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="goalHeaderActions">
                         <button
                           type="button"

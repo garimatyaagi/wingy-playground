@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { SignedIn, SignedOut, SignIn, SignUp, UserButton } from "@clerk/clerk-react";
+import { SignedIn, SignedOut, SignIn, SignUp, UserButton, useUser } from "@clerk/clerk-react";
 
 const STORAGE_KEY = "mini_planner_tasks_v1";
-
-const PRIORITIES = ["High", "Medium", "Low"];
+const OWNER_NAME_KEY = "mini_planner_owner_name_v1";
+const MAX_GOALS = 20;
+const STALE_TASK_DAYS = 3;
 
 const AI_TEMPLATES = {
   launch: [
@@ -23,7 +24,7 @@ const AI_TEMPLATES = {
     ["Clarify requirements & success criteria", 30],
     ["Collect inspiration & references", 30],
     ["Sketch rough flows / wireframes", 45],
-    ["Create high‑fidelity mocks in Figma", 60],
+    ["Create high-fidelity mocks in Figma", 60],
     ["Prepare exportables / handoff notes", 30],
   ],
   generic: [
@@ -41,77 +42,8 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function loadInitialTasks() {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-function saveTasks(tasks) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  } catch {
-    // ignore
-  }
-}
-
-function priorityRank(priority) {
-  if (priority === "High") return 0;
-  if (priority === "Medium") return 1;
-  if (priority === "Low") return 2;
-  return 3;
-}
-
-function formatDateLabel(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "2-digit",
-  });
-}
-
-function formatDuration(totalMinutes) {
-  if (!totalMinutes || totalMinutes <= 0) return "0m";
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours && mins) return `${hours}h ${mins}m`;
-  if (hours) return `${hours}h`;
-  return `${mins}m`;
-}
-
-function computeTaskTotalMinutes(task) {
-  if (!task.scope || task.scope.length === 0) return 0;
-  return task.scope.reduce(
-    (sum, item) => sum + (Number.isFinite(item.minutes) ? item.minutes : 0),
-    0
-  );
-}
-
-function syncStatusFromScope(task) {
-  if (!Array.isArray(task.scope) || task.scope.length === 0) {
-    return task;
-  }
-  const allDone = task.scope.every((s) => s.done);
-  const anyDone = task.scope.some((s) => s.done);
-  if (allDone && task.status !== "Completed") {
-    return { ...task, status: "Completed" };
-  }
-  if (!allDone && anyDone && task.status === "Completed") {
-    return { ...task, status: "Pending" };
-  }
-  return task;
-}
-
 function pickTemplateKey(title) {
-  const t = title.toLowerCase();
+  const t = String(title || "").toLowerCase();
   if (t.includes("launch") || t.includes("product hunt") || t.includes("marketing")) {
     return "launch";
   }
@@ -127,177 +59,275 @@ function pickTemplateKey(title) {
 function buildScopeFromTemplate(title) {
   const key = pickTemplateKey(title);
   const template = AI_TEMPLATES[key] ?? AI_TEMPLATES.generic;
-  return template.map(([text, minutes]) => ({
+  return template.map(([text]) => ({
     id: makeId(),
     text,
-    minutes,
     done: false,
+    createdAt: Date.now(),
   }));
 }
 
-function buildDayPlan(tasks, startHour = 9, startMinute = 0, maxBlockMinutes = 50) {
-  const pendingItems = [];
-  tasks.forEach((task) => {
-    if (task.status === "Completed") return;
-    if (!Array.isArray(task.scope)) return;
-    task.scope.forEach((scope) => {
-      if (scope.done) return;
-      const minutes = Number(scope.minutes) || 0;
-      if (minutes <= 0) return;
-      pendingItems.push({ task, scope, minutes });
-    });
-  });
+function normalizeGoals(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const tasksFromNewModel = Array.isArray(item.tasks) ? item.tasks : null;
+      const tasksFromOldModel = Array.isArray(item.scope) ? item.scope : null;
+      const sourceTasks = tasksFromNewModel ?? tasksFromOldModel ?? [];
+      const tasks = sourceTasks.map((task) => ({
+        id: task.id || makeId(),
+        text: task.text || "",
+        done: Boolean(task.done),
+        createdAt: task.createdAt || item.createdAt || Date.now(),
+      }));
 
-  pendingItems.sort((a, b) => {
-    const pa = priorityRank(a.task.priority);
-    const pb = priorityRank(b.task.priority);
-    if (pa !== pb) return pa - pb;
-
-    const da = a.task.dueDate ? new Date(a.task.dueDate).getTime() : Infinity;
-    const db = b.task.dueDate ? new Date(b.task.dueDate).getTime() : Infinity;
-    if (da !== db) return da - db;
-
-    return a.minutes - b.minutes;
-  });
-
-  const result = [];
-  let cursorMinutes = startHour * 60 + startMinute;
-
-  pendingItems.forEach(({ task, scope, minutes }) => {
-    let remaining = minutes;
-    let partIndex = 0;
-    while (remaining > 0) {
-      const blockMinutes = Math.min(maxBlockMinutes, remaining);
-      const start = cursorMinutes;
-      const end = cursorMinutes + blockMinutes;
-      cursorMinutes = end;
-      remaining -= blockMinutes;
-      partIndex += 1;
-
-      result.push({
-        id: `${task.id}-${scope.id}-${partIndex}`,
-        taskId: task.id,
-        scopeId: scope.id,
-        minutes: blockMinutes,
-        label: task.title || "Untitled task",
-        subLabel:
-          remaining <= 0 && partIndex === 1
-            ? scope.text
-            : `${scope.text} (part ${partIndex})`,
-        timeRange: `${formatTimeOfDay(start)}–${formatTimeOfDay(end)}`,
-      });
-    }
-  });
-
-  return result;
+      return {
+        id: item.id || makeId(),
+        title: item.title || "",
+        tasks,
+        aiLoading: Boolean(item.aiLoading),
+        aiError: item.aiError || "",
+        createdAt: item.createdAt || Date.now(),
+      };
+    })
+    .filter((goal) => goal.title.trim().length > 0);
 }
 
-function formatTimeOfDay(totalMinutesFromMidnight) {
-  const hours = Math.floor(totalMinutesFromMidnight / 60);
-  const minutes = totalMinutesFromMidnight % 60;
-  const date = new Date();
-  date.setHours(hours, minutes, 0, 0);
-  return date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+function loadInitialGoals() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return normalizeGoals(parsed).slice(0, MAX_GOALS);
+  } catch {
+    return [];
+  }
+}
+
+function saveGoals(goals) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(goals));
+  } catch {
+    // ignore
+  }
+}
+
+function loadOwnerName() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(OWNER_NAME_KEY) || "";
+}
+
+function saveOwnerName(name) {
+  try {
+    window.localStorage.setItem(OWNER_NAME_KEY, name);
+  } catch {
+    // ignore
+  }
+}
+
+function getTaskSignal(task) {
+  if (task.done) return { label: "Completed", tone: "signalDone" };
+  const createdAt = Number(task.createdAt) || Date.now();
+  const staleMs = STALE_TASK_DAYS * 24 * 60 * 60 * 1000;
+  if (Date.now() - createdAt >= staleMs) {
+    return { label: "Stalled", tone: "signalDelayed" };
+  }
+  return { label: "In progress", tone: "signalPlanned" };
 }
 
 export default function App() {
-  const [tasks, setTasks] = useState(loadInitialTasks);
-  const [activePage, setActivePage] = useState("tasks"); // "tasks" | "plan"
-  const [taskFilter, setTaskFilter] = useState("all"); // "all" | "pending" | "completed"
-  const [newTitle, setNewTitle] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [saveMessage, setSaveMessage] = useState("");
+  const { user } = useUser();
+  const [goals, setGoals] = useState(loadInitialGoals);
+  const [ownerName, setOwnerName] = useState(loadOwnerName);
+  const [isEditingOwner, setIsEditingOwner] = useState(false);
+  const [newGoalTitle, setNewGoalTitle] = useState("");
+  const [goalSections, setGoalSections] = useState({});
+  const [goalTitleEditing, setGoalTitleEditing] = useState({});
+
+  const loginName = user?.firstName || user?.fullName || user?.username || "";
 
   useEffect(() => {
-    saveTasks(tasks);
-  }, [tasks]);
+    saveGoals(goals);
+  }, [goals]);
 
   useEffect(() => {
-    if (!selectedTaskId && tasks.length > 0) {
-      setSelectedTaskId(tasks[0].id);
-    } else if (
-      selectedTaskId &&
-      tasks.length > 0 &&
-      !tasks.some((t) => t.id === selectedTaskId)
-    ) {
-      setSelectedTaskId(tasks[0].id);
+    saveOwnerName(ownerName);
+  }, [ownerName]);
+
+  useEffect(() => {
+    if (!ownerName.trim() && loginName) {
+      setOwnerName(loginName);
     }
-  }, [tasks, selectedTaskId]);
+  }, [ownerName, loginName]);
 
-  const counts = useMemo(() => {
-    const pending = tasks.filter((t) => t.status !== "Completed").length;
-    const completed = tasks.filter((t) => t.status === "Completed").length;
-    return { all: tasks.length, pending, completed };
-  }, [tasks]);
+  const overallStats = useMemo(() => {
+    const tasks = goals.flatMap((goal) => goal.tasks);
+    const total = tasks.length;
+    const completed = tasks.filter((task) => task.done).length;
+    const stalled = tasks.filter((task) => !task.done && getTaskSignal(task).label === "Stalled").length;
+    const completedOutOf365 = Math.min(365, completed);
+    const yearProgressPct = Math.min(100, Math.round((completedOutOf365 / 365) * 100));
+    return { total, completed, stalled, completedOutOf365, yearProgressPct };
+  }, [goals]);
 
-  const filteredTasks = useMemo(() => {
-    if (taskFilter === "pending") {
-      return tasks.filter((t) => t.status !== "Completed");
-    }
-    if (taskFilter === "completed") {
-      return tasks.filter((t) => t.status === "Completed");
-    }
-    return tasks;
-  }, [tasks, taskFilter]);
-
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
-
-  function updateTask(id, updater, { syncStatus } = { syncStatus: false }) {
-    setTasks((prev) =>
-      prev.map((task) => {
-        if (task.id !== id) return task;
-        let next = updater(task);
-        if (syncStatus) {
-          next = syncStatusFromScope(next);
-        }
-        return next;
-      })
-    );
+  function updateGoal(goalId, updater) {
+    setGoals((prev) => prev.map((goal) => (goal.id === goalId ? updater(goal) : goal)));
   }
 
-  function handleAddTask(e) {
+  function handleAddGoal(e) {
     e.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
-    const task = {
+    const title = newGoalTitle.trim();
+    if (!title || goals.length >= MAX_GOALS) return;
+
+    const nextGoal = {
       id: makeId(),
       title,
-      status: "Pending",
-      priority: "Medium",
-      dueDate: "",
-      assignee: "",
-      scopeLocked: false,
-      scope: [],
+      tasks: [],
+      aiLoading: false,
+      aiError: "",
       createdAt: Date.now(),
     };
-    setTasks((prev) => [task, ...prev]);
-    setNewTitle("");
-    setSelectedTaskId(task.id);
+
+    setGoals((prev) => [...prev, nextGoal]);
+    setNewGoalTitle("");
   }
 
-  function handleSaveDraft() {
-    saveTasks(tasks);
-    setSaveMessage("Saved to this browser.");
-    window.setTimeout(() => setSaveMessage(""), 2000);
+  function addTask(goalId) {
+    updateGoal(goalId, (goal) => ({
+      ...goal,
+      tasks: [
+        ...goal.tasks,
+        {
+          id: makeId(),
+          text: "New task",
+          done: false,
+          createdAt: Date.now(),
+        },
+      ],
+    }));
   }
 
-  const dayPlan = useMemo(() => buildDayPlan(tasks), [tasks]);
-  const totalEstimatedMinutes = useMemo(
-    () => tasks.reduce((sum, t) => sum + computeTaskTotalMinutes(t), 0),
-    [tasks]
-  );
+  function updateTask(goalId, taskId, updater) {
+    updateGoal(goalId, (goal) => ({
+      ...goal,
+      tasks: goal.tasks.map((task) => (task.id === taskId ? updater(task) : task)),
+    }));
+  }
+
+  function removeTask(goalId, taskId) {
+    updateGoal(goalId, (goal) => ({
+      ...goal,
+      tasks: goal.tasks.filter((task) => task.id !== taskId),
+    }));
+  }
+
+  function getBreakdownEndpoints() {
+    const base = import.meta.env.VITE_API_BASE_URL?.trim();
+    const normalizedBase = base ? base.replace(/\/+$/, "") : "";
+    const endpoints = [];
+    if (normalizedBase) {
+      endpoints.push(`${normalizedBase}/api/ai/breakdown`);
+    }
+    endpoints.push("/api/ai/breakdown");
+    return endpoints;
+  }
+
+  async function fetchAIBreakdown(payload) {
+    const endpoints = getBreakdownEndpoints();
+    let lastError = null;
+
+    for (const endpoint of endpoints) {
+      try {
+        console.log("Calling /api/ai/breakdown", payload.title);
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          const message =
+            data && typeof data.error === "string"
+              ? data.error
+              : "Could not generate AI breakdown right now.";
+          throw new Error(message);
+        }
+
+        if (!data || !Array.isArray(data.steps)) {
+          throw new Error("AI response was invalid.");
+        }
+
+        return data;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error("Could not reach AI breakdown endpoint.");
+  }
+
+  async function regenerateScopeWithAI(goalId, title, description = "") {
+    updateGoal(goalId, (goal) => ({ ...goal, aiLoading: true, aiError: "" }));
+
+    try {
+      const data = await fetchAIBreakdown({ title, description });
+
+      const tasks = data.steps.map((step) => ({
+        id: makeId(),
+        text: typeof step?.text === "string" ? step.text : "",
+        done: false,
+        createdAt: Date.now(),
+      }));
+
+      updateGoal(goalId, (goal) => ({
+        ...goal,
+        tasks,
+        aiLoading: false,
+        aiError: "",
+      }));
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? `AI breakdown failed: ${error.message}`
+          : "AI breakdown failed. Try again.";
+
+      updateGoal(goalId, (goal) => ({
+        ...goal,
+        tasks: buildScopeFromTemplate(goal.title),
+        aiLoading: false,
+        aiError: message,
+      }));
+    }
+  }
+
+  function getGoalSection(goalId) {
+    return goalSections[goalId] || "incomplete";
+  }
+
+  function setGoalSection(goalId, section) {
+    setGoalSections((prev) => ({ ...prev, [goalId]: section }));
+  }
+
+  function startGoalTitleEdit(goalId) {
+    setGoalTitleEditing((prev) => ({ ...prev, [goalId]: true }));
+  }
+
+  function stopGoalTitleEdit(goalId) {
+    setGoalTitleEditing((prev) => ({ ...prev, [goalId]: false }));
+    updateGoal(goalId, (goal) => {
+      const safeTitle = goal.title.trim() || "Untitled goal";
+      return { ...goal, title: safeTitle };
+    });
+  }
 
   return (
     <div className="appShell">
       <div className="appFrame">
         <div className="topBar">
           <div className="brand">
-            <h1>Mini Planner</h1>
-            <span className="sub">Lightweight day planner for makers</span>
+            <h1>2026 Progress Tracker</h1>
+            <span className="sub">Build daily consistency across your goals.</span>
           </div>
         </div>
 
@@ -306,543 +336,255 @@ export default function App() {
         </SignedOut>
 
         <SignedIn>
-          <div className="mainHeaderRow">
-            <div className="nav" role="tablist" aria-label="Mini Planner pages">
-              <button
-                type="button"
-                className={activePage === "tasks" ? "navBtn navBtnActive" : "navBtn"}
-                onClick={() => setActivePage("tasks")}
-                role="tab"
-                aria-selected={activePage === "tasks"}
-              >
-                Tasks
-              </button>
-              <button
-                type="button"
-                className={activePage === "plan" ? "navBtn navBtnActive" : "navBtn"}
-                onClick={() => setActivePage("plan")}
-                role="tab"
-                aria-selected={activePage === "plan"}
-              >
-                Plan My Day
-              </button>
+          <div className="mainHeaderRow" style={{ gridColumn: "1 / -1", marginBottom: 0 }}>
+            <div className="trackerTitleWrap">
+              {isEditingOwner || !ownerName.trim() ? (
+                <input
+                  className="input"
+                  value={ownerName}
+                  placeholder="Name of person"
+                  autoFocus
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  onBlur={() => setIsEditingOwner(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setIsEditingOwner(false);
+                    }
+                  }}
+                  style={{ maxWidth: 260 }}
+                />
+              ) : (
+                <h2 className="trackerTitle editableTitle" onDoubleClick={() => setIsEditingOwner(true)}>
+                  {ownerName.trim() || loginName || "Your"} To Do
+                </h2>
+              )}
             </div>
             <div className="headerUser">
               <UserButton />
             </div>
           </div>
 
-          {activePage === "tasks" ? (
-            <>
-              <div className="card">
-                <div className="summaryRow">
-                  <div className="summaryCard">
-                    <div className="summaryLabel">Total tasks</div>
-                    <div className="summaryValue">{counts.all}</div>
-                  </div>
-                  <div className="summaryCard">
-                    <div className="summaryLabel">Pending</div>
-                    <div className="summaryValue">{counts.pending}</div>
-                  </div>
-                  <div className="summaryCard">
-                    <div className="summaryLabel">Completed</div>
-                    <div className="summaryValue">{counts.completed}</div>
-                  </div>
-                  <div className="summaryCard">
-                    <div className="summaryLabel">Total effort</div>
-                    <div className="summaryValue">
-                      {formatDuration(totalEstimatedMinutes)}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    marginBottom: 10,
-                  }}
-                >
-                  <div className="mutedText">Summary of your tasks</div>
-                  <form
-                    onSubmit={handleAddTask}
-                    style={{ display: "flex", gap: 8, alignItems: "center" }}
-                  >
-                    <input
-                      className="input"
-                      placeholder="Add a task title…"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      style={{ maxWidth: 260 }}
-                    />
-                    <button
-                      className="button"
-                      type="submit"
-                      disabled={!newTitle.trim()}
-                    >
-                      Add task
-                    </button>
-                  </form>
-                </div>
-
-                <div className="tabs" role="tablist" aria-label="Task filters">
-                  <TaskFilterTab
-                    label={`All (${counts.all})`}
-                    active={taskFilter === "all"}
-                    onClick={() => setTaskFilter("all")}
-                  />
-                  <TaskFilterTab
-                    label={`Pending (${counts.pending})`}
-                    active={taskFilter === "pending"}
-                    onClick={() => setTaskFilter("pending")}
-                  />
-                  <TaskFilterTab
-                    label={`Completed (${counts.completed})`}
-                    active={taskFilter === "completed"}
-                    onClick={() => setTaskFilter("completed")}
-                  />
-                </div>
-
-                <div className="taskTableWrapper">
-                  {filteredTasks.length === 0 ? (
-                    <div style={{ padding: 12 }} className="mutedText">
-                      {taskFilter === "completed"
-                        ? "No completed tasks yet."
-                        : "No tasks here yet. Start by creating one above."}
-                    </div>
-                  ) : (
-                    <table className="taskTable">
-                      <thead>
-                        <tr>
-                          <th>Title</th>
-                          <th>Status</th>
-                          <th>Priority</th>
-                          <th>Due</th>
-                          <th>Effort</th>
-                          <th>Progress</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredTasks.map((task) => {
-                          const totalMinutes = computeTaskTotalMinutes(task);
-                          const doneCount = Array.isArray(task.scope)
-                            ? task.scope.filter((s) => s.done).length
-                            : 0;
-                          const totalCount = Array.isArray(task.scope)
-                            ? task.scope.length
-                            : 0;
-
-                          return (
-                            <tr
-                              key={task.id}
-                              onClick={() => setSelectedTaskId(task.id)}
-                              className={
-                                task.id === selectedTaskId
-                                  ? "taskTableRowActive"
-                                  : undefined
-                              }
-                            >
-                              <td>{task.title || "Untitled task"}</td>
-                              <td>{task.status}</td>
-                              <td>{task.priority}</td>
-                              <td>
-                                {task.dueDate
-                                  ? formatDateLabel(task.dueDate)
-                                  : "—"}
-                              </td>
-                              <td>{formatDuration(totalMinutes)}</td>
-                              <td>
-                                {totalCount > 0
-                                  ? `${doneCount}/${totalCount}`
-                                  : "No scope"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+          <div className="card progressSummary" style={{ gridColumn: "1 / -1" }}>
+            <div className="progressSummaryRow">
+              <div className="summaryItem">
+                <span className="summaryItemLabel">Tasks logged</span>
+                <strong>{overallStats.total}</strong>
               </div>
-
-              <div className="sidePanel">
-                <div className="card">
-                  <TaskDetailPanel
-                    task={selectedTask}
-                    onMetaChange={(field, value) => {
-                      if (!selectedTask) return;
-                      updateTask(selectedTask.id, (t) => ({ ...t, [field]: value }));
-                    }}
-                    onToggleScopeDone={(scopeId) => {
-                      if (!selectedTask) return;
-                      updateTask(
-                        selectedTask.id,
-                        (t) => ({
-                          ...t,
-                          scope: (t.scope ?? []).map((s) =>
-                            s.id === scopeId ? { ...s, done: !s.done } : s
-                          ),
-                        }),
-                        { syncStatus: true }
-                      );
-                    }}
-                    onScopeTextChange={(scopeId, text) => {
-                      if (!selectedTask) return;
-                      updateTask(selectedTask.id, (t) => ({
-                        ...t,
-                        scope: (t.scope ?? []).map((s) =>
-                          s.id === scopeId ? { ...s, text } : s
-                        ),
-                      }));
-                    }}
-                    onScopeMinutesChange={(scopeId, minutes) => {
-                      if (!selectedTask) return;
-                      const safeMinutes = Number.isNaN(minutes) ? 0 : minutes;
-                      updateTask(selectedTask.id, (t) => ({
-                        ...t,
-                        scope: (t.scope ?? []).map((s) =>
-                          s.id === scopeId ? { ...s, minutes: safeMinutes } : s
-                        ),
-                      }));
-                    }}
-                    onAddScopeItem={() => {
-                      if (!selectedTask) return;
-                      updateTask(selectedTask.id, (t) => ({
-                        ...t,
-                        scope: [
-                          ...(t.scope ?? []),
-                          {
-                            id: makeId(),
-                            text: "New subtask",
-                            minutes: 15,
-                            done: false,
-                          },
-                        ],
-                      }));
-                    }}
-                    onRemoveScopeItem={(scopeId) => {
-                      if (!selectedTask) return;
-                      updateTask(
-                        selectedTask.id,
-                        (t) => ({
-                          ...t,
-                          scope: (t.scope ?? []).filter((s) => s.id !== scopeId),
-                        }),
-                        { syncStatus: true }
-                      );
-                    }}
-                    onGenerateScope={() => {
-                      if (!selectedTask) return;
-                      updateTask(
-                        selectedTask.id,
-                        (t) => ({
-                          ...t,
-                          scope: buildScopeFromTemplate(t.title ?? ""),
-                          scopeLocked: false,
-                        }),
-                        { syncStatus: true }
-                      );
-                    }}
-                    onAcceptScope={() => {
-                      if (!selectedTask) return;
-                      updateTask(
-                        selectedTask.id,
-                        (t) => ({ ...t, scopeLocked: true }),
-                        {
-                          syncStatus: true,
-                        }
-                      );
-                    }}
-                    onEditScope={() => {
-                      if (!selectedTask) return;
-                      updateTask(
-                        selectedTask.id,
-                        (t) => ({ ...t, scopeLocked: false }),
-                        {
-                          syncStatus: true,
-                        }
-                      );
-                    }}
-                    onSaveDraft={handleSaveDraft}
-                    saveMessage={saveMessage}
+              <div className="summaryItem">
+                <span className="summaryItemLabel">Completed</span>
+                <strong>{overallStats.completed}</strong>
+              </div>
+              <div className="summaryItem">
+                <span className="summaryItemLabel">Stalled</span>
+                <strong>{overallStats.stalled}</strong>
+              </div>
+              <div className="summaryItem summaryItemWide">
+                <span className="summaryItemLabel">Year progress</span>
+                <strong>📅 {overallStats.completedOutOf365}/365</strong>
+                <div className="yearMeter">
+                  <span
+                    className="yearMeterFill"
+                    style={{ width: `${overallStats.yearProgressPct}%` }}
                   />
                 </div>
               </div>
-            </>
-          ) : (
-            <div className="card" style={{ gridColumn: "1 / -1" }}>
-              <PlanMyDayView
-                plan={dayPlan}
-                onDone={(item) => {
-                  updateTask(
-                    item.taskId,
-                    (t) => ({
-                      ...t,
-                      scope: (t.scope ?? []).map((s) =>
-                        s.id === item.scopeId ? { ...s, done: true } : s
-                      ),
-                    }),
-                    { syncStatus: true }
-                  );
-                }}
-              />
             </div>
-          )}
-        </SignedIn>
-      </div>
-    </div>
-  );
-}
-
-function TaskFilterTab({ label, active, onClick }) {
-  return (
-    <button
-      type="button"
-      className={active ? "tab tabActive" : "tab"}
-      onClick={onClick}
-      role="tab"
-      aria-selected={active}
-    >
-      {label}
-    </button>
-  );
-}
-
-function TaskDetailPanel({
-  task,
-  onMetaChange,
-  onToggleScopeDone,
-  onScopeTextChange,
-  onScopeMinutesChange,
-  onAddScopeItem,
-  onRemoveScopeItem,
-  onGenerateScope,
-  onAcceptScope,
-  onEditScope,
-  onSaveDraft,
-  saveMessage,
-}) {
-  if (!task) {
-    return (
-      <div>
-        <div className="sideHeader">
-          <h2>No task selected</h2>
-        </div>
-        <p className="mutedText">
-          Select a task from the table or create a new one to see details here.
-        </p>
-      </div>
-    );
-  }
-
-  const totalMinutes = computeTaskTotalMinutes(task);
-  const scope = task.scope ?? [];
-  const locked = Boolean(task.scopeLocked);
-
-  return (
-    <div>
-      <div className="sideHeader">
-        <h2>{task.title || "Untitled task"}</h2>
-        <button
-          type="button"
-          className="iconBtn"
-          onClick={onSaveDraft}
-          aria-label="Save draft"
-        >
-          💾
-        </button>
-      </div>
-
-      <div className="sectionTitle">
-        <span>AI Suggested Scope</span>
-      </div>
-
-      <div className="scopeBox">
-        <ul className="scopeList">
-          {scope.length === 0 ? (
-            <li className="mutedText">
-              No breakdown yet. Generate one or add your own subtasks.
-            </li>
-          ) : (
-            scope.map((item) => (
-              <li key={item.id} className="scopeItem">
-                <input
-                  type="checkbox"
-                  className="checkbox"
-                  checked={Boolean(item.done)}
-                  onChange={() => onToggleScopeDone(item.id)}
-                />
-                <div>
-                  <input
-                    className="textInput"
-                    value={item.text}
-                    disabled={locked}
-                    onChange={(e) => onScopeTextChange(item.id, e.target.value)}
-                  />
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <input
-                    type="number"
-                    min="0"
-                    className="textInput"
-                    style={{ width: 80 }}
-                    disabled={locked}
-                    value={item.minutes ?? 0}
-                    onChange={(e) =>
-                      onScopeMinutesChange(item.id, Number(e.target.value))
-                    }
-                  />
-                  <div className="mins">{formatDuration(item.minutes ?? 0)}</div>
-                  {!locked && (
-                    <button
-                      type="button"
-                      className="iconBtn"
-                      style={{ marginTop: 6 }}
-                      onClick={() => onRemoveScopeItem(item.id)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))
-          )}
-        </ul>
-
-        <div className="controls">
-          <button
-            type="button"
-            className="button"
-            onClick={onGenerateScope}
-          >
-            Generate AI breakdown
-          </button>
-          <button
-            type="button"
-            className="buttonLight"
-            onClick={locked ? onEditScope : onAcceptScope}
-          >
-            {locked ? "Edit Breakdown" : "Accept Scope"}
-          </button>
-          {!locked && (
-            <button
-              type="button"
-              className="buttonLight"
-              onClick={onAddScopeItem}
-            >
-              Add subtask
-            </button>
-          )}
-        </div>
-
-        <div className="bigStat">
-          <div className="label">
-            <span>Total Est. Effort</span>
           </div>
-          <div className="value">{formatDuration(totalMinutes)}</div>
-        </div>
-      </div>
 
-      <div className="sectionTitle">Details</div>
-      <div className="fieldGrid">
-        <div className="field">
-          <label htmlFor="status">Status</label>
-          <select
-            id="status"
-            className="select"
-            value={task.status}
-            onChange={(e) => onMetaChange("status", e.target.value)}
-          >
-            <option value="Pending">Pending</option>
-            <option value="Completed">Completed</option>
-          </select>
-        </div>
+          <div className="card" style={{ gridColumn: "1 / -1" }}>
+            <form onSubmit={handleAddGoal} className="goalAddForm">
+              <input
+                className="input"
+                value={newGoalTitle}
+                onChange={(e) => setNewGoalTitle(e.target.value)}
+                placeholder="Add a 2026 goal table (example: Goal A - Fitness)"
+              />
+              <button
+                type="submit"
+                className="button"
+                disabled={!newGoalTitle.trim() || goals.length >= MAX_GOALS}
+              >
+                Add goal table
+              </button>
+            </form>
+            {goals.length >= MAX_GOALS ? (
+              <div className="mutedText" style={{ marginTop: 8 }}>
+                Goal table limit reached (20).
+              </div>
+            ) : null}
+          </div>
 
-        <div className="field">
-          <label htmlFor="assignee">Assignee</label>
-          <input
-            id="assignee"
-            className="textInput"
-            value={task.assignee ?? ""}
-            onChange={(e) => onMetaChange("assignee", e.target.value)}
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="dueDate">Due Date</label>
-          <input
-            id="dueDate"
-            type="date"
-            className="dateInput"
-            value={task.dueDate ?? ""}
-            onChange={(e) => onMetaChange("dueDate", e.target.value)}
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="priority">Priority</label>
-          <select
-            id="priority"
-            className="select"
-            value={task.priority}
-            onChange={(e) => onMetaChange("priority", e.target.value)}
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="footerBar">
-        <div className="mutedText">
-          {saveMessage || "Changes are stored in this browser."}
-        </div>
-        <button type="button" className="buttonLight" onClick={onSaveDraft}>
-          Save draft
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PlanMyDayView({ plan, onDone }) {
-  return (
-    <div>
-      <div className="sideHeader">
-        <h2>Plan My Day</h2>
-      </div>
-      {plan.length === 0 ? (
-        <p className="mutedText">
-          No pending subtasks to plan. Add scope to your tasks and mark them as
-          pending to see a suggested day plan.
-        </p>
-      ) : (
-        <ul className="planList">
-          {plan.map((item) => (
-            <li key={item.id} className="planBlock">
-              <div className="time">{item.timeRange}</div>
-              <div>
-                <p className="blockTitle">{item.label}</p>
-                <p className="blockSub">
-                  {item.subLabel} • {formatDuration(item.minutes)}
+          <div className="goalTablesWrap">
+            {goals.length === 0 ? (
+              <div className="card" style={{ gridColumn: "1 / -1" }}>
+                <p className="mutedText" style={{ margin: 0 }}>
+                  No goal tables yet. Add your first 2026 goal to get started.
                 </p>
               </div>
-              <button
-                type="button"
-                className="buttonLight"
-                onClick={() => onDone(item)}
-              >
-                Done
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+            ) : (
+              goals.map((goal) => {
+                const section = getGoalSection(goal.id);
+                const totalTasks = goal.tasks.length;
+                const incompleteCount = goal.tasks.filter((task) => !task.done).length;
+                const completedCount = goal.tasks.filter((task) => task.done).length;
+                const visibleTasks = goal.tasks.filter((task) => {
+                  if (section === "completed") return task.done;
+                  if (section === "incomplete") return !task.done;
+                  return true;
+                });
+
+                return (
+                  <div className="card goalTableCard" key={goal.id}>
+                    <div className="goalHeader">
+                      {goalTitleEditing[goal.id] ? (
+                        <input
+                          className="textInput goalTitleInput"
+                          autoFocus
+                          value={goal.title}
+                          onChange={(e) =>
+                            updateGoal(goal.id, (g) => ({ ...g, title: e.target.value }))
+                          }
+                          onBlur={() => stopGoalTitleEdit(goal.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              stopGoalTitleEdit(goal.id);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <h3
+                          className="goalTitleStatic"
+                          onDoubleClick={() => startGoalTitleEdit(goal.id)}
+                        >
+                          {goal.title}
+                        </h3>
+                      )}
+                      <div className="goalHeaderActions">
+                        <button
+                          type="button"
+                          className="button"
+                          onClick={() => regenerateScopeWithAI(goal.id, goal.title)}
+                          disabled={goal.aiLoading || !goal.title.trim()}
+                        >
+                          {goal.aiLoading
+                            ? "Generating..."
+                            : goal.tasks.length > 0
+                              ? "Regenerate AI breakdown"
+                              : "Generate AI breakdown"}
+                        </button>
+                        <button
+                          type="button"
+                          className="buttonLight"
+                          onClick={() => addTask(goal.id)}
+                        >
+                          Add task
+                        </button>
+                      </div>
+                    </div>
+
+                    {goal.aiError ? <div className="errorText">{goal.aiError}</div> : null}
+
+                    <div className="goalSectionTabs">
+                      <button
+                        type="button"
+                        className={section === "incomplete" ? "tab tabActive" : "tab"}
+                        onClick={() => setGoalSection(goal.id, "incomplete")}
+                      >
+                        Incomplete ({incompleteCount})
+                      </button>
+                      <button
+                        type="button"
+                        className={section === "all" ? "tab tabActive" : "tab"}
+                        onClick={() => setGoalSection(goal.id, "all")}
+                      >
+                        All ({totalTasks})
+                      </button>
+                      <button
+                        type="button"
+                        className={section === "completed" ? "tab tabActive" : "tab"}
+                        onClick={() => setGoalSection(goal.id, "completed")}
+                      >
+                        Completed ({completedCount})
+                      </button>
+                    </div>
+
+                    <div className="taskTableWrapper">
+                      <table className="taskTable">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 84 }}>Done</th>
+                            <th>Task name</th>
+                            <th style={{ width: 140 }}>Signal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleTasks.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="mutedText" style={{ padding: 10 }}>
+                                No tasks in this section.
+                              </td>
+                            </tr>
+                          ) : (
+                            visibleTasks.map((task) => (
+                              <tr key={task.id}>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className={task.done ? "doneToggle doneToggleOn" : "doneToggle"}
+                                    onClick={() =>
+                                      updateTask(goal.id, task.id, (t) => ({
+                                        ...t,
+                                        done: !t.done,
+                                      }))
+                                    }
+                                  >
+                                    {task.done ? "Completed" : "Complete"}
+                                  </button>
+                                </td>
+                                <td>
+                                  <input
+                                    className="textInput"
+                                    value={task.text}
+                                    onChange={(e) =>
+                                      updateTask(goal.id, task.id, (t) => ({
+                                        ...t,
+                                        text: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <div className="taskRowActions">
+                                    {(() => {
+                                      const signal = getTaskSignal(task);
+                                      return (
+                                        <span className={`statusSignal ${signal.tone}`}>
+                                          {signal.label}
+                                        </span>
+                                      );
+                                    })()}
+                                    <button
+                                      type="button"
+                                      className="deleteTaskBtn"
+                                      onClick={() => removeTask(goal.id, task.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </SignedIn>
+      </div>
     </div>
   );
 }
@@ -864,36 +606,25 @@ function AuthPage() {
     <div className="authShell">
       <div className="authHero">
         <div>
-          <h2>Plan your maker days with intention.</h2>
-          <p>
-            Mini Planner turns fuzzy tasks into a scoped plan with time blocks
-            you can actually finish today.
-          </p>
+          <h2>Track your progress with intention.</h2>
+          <p>Sign in to keep your 2026 goals and tasks synced to your account.</p>
         </div>
         <p style={{ fontSize: 12, marginTop: 16 }}>
-          Sign in to keep your tasks synced securely to your account.
+          Build momentum by reviewing your tasks each day.
         </p>
       </div>
       <div className="authCard">
         <div className="authTabs">
           <button
             type="button"
-            className={
-              mode === "sign-in"
-                ? "authTabBtn authTabBtnActive"
-                : "authTabBtn"
-            }
+            className={mode === "sign-in" ? "authTabBtn authTabBtnActive" : "authTabBtn"}
             onClick={() => setMode("sign-in")}
           >
             Sign in
           </button>
           <button
             type="button"
-            className={
-              mode === "sign-up"
-                ? "authTabBtn authTabBtnActive"
-                : "authTabBtn"
-            }
+            className={mode === "sign-up" ? "authTabBtn authTabBtnActive" : "authTabBtn"}
             onClick={() => setMode("sign-up")}
           >
             Create account

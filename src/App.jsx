@@ -13,37 +13,19 @@ import { createClerkSupabaseClient } from "./lib/supabaseClient";
 const OWNER_NAME_KEY = "mini_planner_owner_name_v1";
 const MAX_GOALS = 20;
 const BG_PREF_KEY = "mini_planner_bg_pref_v1";
-const GRADIENT_PRESETS = [
-  {
-    id: "sage-dawn",
-    name: "Sage Dawn",
-    start: "236,239,222",
-    end: "223,229,208",
-  },
-  {
-    id: "sky-mist",
-    name: "Sky Mist",
-    start: "223,233,246",
-    end: "203,217,240",
-  },
-  {
-    id: "sunset-cream",
-    name: "Sunset Cream",
-    start: "248,229,210",
-    end: "240,213,192",
-  },
-  {
-    id: "lavender-fog",
-    name: "Lavender Fog",
-    start: "229,224,241",
-    end: "214,206,232",
-  },
-  {
-    id: "mint-cloud",
-    name: "Mint Cloud",
-    start: "225,241,235",
-    end: "205,229,220",
-  },
+const QUOTES_KEY = "mini_planner_quotes_v1";
+const THEME_KEY = "mini_planner_theme_v1";
+const LOCAL_GOALS_KEY = "mini_planner_local_goals_v1";
+const COLLAGE_COLORS = [
+  "#d9e4cc",
+  "#d8e5f5",
+  "#edd8c6",
+  "#ddd5ee",
+  "#d4e7df",
+  "#f4d5da",
+  "#f2e7be",
+  "#d2e5eb",
+  "#e5ddd3",
 ];
 
 const AI_TEMPLATES = {
@@ -122,14 +104,23 @@ function saveOwnerName(name) {
 }
 
 function loadBgPref() {
+  const defaultTiles = COLLAGE_COLORS.map((color) => ({ type: "color", value: color }));
+  const defaultTheme = {
+    primary: "#a91818",
+    primaryHover: "#8f1414",
+    text: "#181717",
+    muted: "rgba(24, 23, 23, 0.62)",
+    border: "rgba(24, 23, 23, 0.1)",
+    surface: "rgba(255, 255, 255, 0.95)",
+    surface2: "#f8faed",
+  };
   if (typeof window === "undefined") {
     return {
-      mode: "gradient",
-      gradientId: "sage-dawn",
-      imageUrl: "",
-      imageLabel: "",
+      collageTiles: defaultTiles,
+      selectedTile: 0,
+      theme: defaultTheme,
       overlayOpacity: 20,
-      boardOpacity: 92,
+      boardOpacity: 94,
       boardBlur: 2,
       boardRadius: 48,
     };
@@ -138,14 +129,71 @@ function loadBgPref() {
     const raw = window.localStorage.getItem(BG_PREF_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === "object") {
+      const parsedTiles = Array.isArray(parsed.collageTiles)
+        ? parsed.collageTiles
+            .filter(
+              (tile) =>
+                tile &&
+                typeof tile === "object" &&
+                (tile.type === "color" || tile.type === "image") &&
+                typeof tile.value === "string" &&
+                tile.value.trim()
+            )
+            .slice(0, 9)
+        : [];
+      const legacyImages = Array.isArray(parsed.imageUrls)
+        ? parsed.imageUrls.filter((url) => typeof url === "string" && url.trim()).slice(0, 9)
+        : [];
+      const collageTiles =
+        parsedTiles.length > 0
+          ? [
+              ...parsedTiles,
+              ...defaultTiles.slice(parsedTiles.length, 9),
+            ]
+          : legacyImages.length > 0
+            ? defaultTiles.map((tile, idx) =>
+                legacyImages[idx] ? { type: "image", value: legacyImages[idx] } : tile
+              )
+            : defaultTiles;
       return {
-        mode: parsed.mode === "image" ? "image" : "gradient",
-        gradientId:
-          typeof parsed.gradientId === "string" ? parsed.gradientId : "sage-dawn",
-        imageUrl: typeof parsed.imageUrl === "string" ? parsed.imageUrl : "",
-        imageLabel: typeof parsed.imageLabel === "string" ? parsed.imageLabel : "",
+        collageTiles,
+        selectedTile:
+          Number.isFinite(parsed.selectedTile) && parsed.selectedTile >= 0 && parsed.selectedTile < 9
+            ? Math.floor(parsed.selectedTile)
+            : 0,
+        theme:
+          parsed.theme && typeof parsed.theme === "object"
+            ? {
+                primary:
+                  typeof parsed.theme.primary === "string"
+                    ? parsed.theme.primary
+                    : defaultTheme.primary,
+                primaryHover:
+                  typeof parsed.theme.primaryHover === "string"
+                    ? parsed.theme.primaryHover
+                    : defaultTheme.primaryHover,
+                text:
+                  typeof parsed.theme.text === "string" ? parsed.theme.text : defaultTheme.text,
+                muted:
+                  typeof parsed.theme.muted === "string"
+                    ? parsed.theme.muted
+                    : defaultTheme.muted,
+                border:
+                  typeof parsed.theme.border === "string"
+                    ? parsed.theme.border
+                    : defaultTheme.border,
+                surface:
+                  typeof parsed.theme.surface === "string"
+                    ? parsed.theme.surface
+                    : defaultTheme.surface,
+                surface2:
+                  typeof parsed.theme.surface2 === "string"
+                    ? parsed.theme.surface2
+                    : defaultTheme.surface2,
+              }
+            : defaultTheme,
         overlayOpacity: Number.isFinite(parsed.overlayOpacity) ? parsed.overlayOpacity : 20,
-        boardOpacity: Number.isFinite(parsed.boardOpacity) ? parsed.boardOpacity : 92,
+        boardOpacity: Number.isFinite(parsed.boardOpacity) ? parsed.boardOpacity : 94,
         boardBlur: Number.isFinite(parsed.boardBlur) ? parsed.boardBlur : 2,
         boardRadius: Number.isFinite(parsed.boardRadius) ? parsed.boardRadius : 48,
       };
@@ -154,12 +202,11 @@ function loadBgPref() {
     // ignore
   }
   return {
-    mode: "gradient",
-    gradientId: "sage-dawn",
-    imageUrl: "",
-    imageLabel: "",
+    collageTiles: defaultTiles,
+    selectedTile: 0,
+    theme: defaultTheme,
     overlayOpacity: 20,
-    boardOpacity: 92,
+    boardOpacity: 94,
     boardBlur: 2,
     boardRadius: 48,
   };
@@ -173,6 +220,153 @@ function saveBgPref(pref) {
   }
 }
 
+function loadQuotes() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(QUOTES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function saveQuotes(quotes) {
+  try {
+    window.localStorage.setItem(QUOTES_KEY, JSON.stringify(quotes.slice(0, 10)));
+  } catch {
+    // ignore
+  }
+}
+
+function loadNightMode() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(THEME_KEY) === "night";
+}
+
+function saveNightMode(enabled) {
+  try {
+    window.localStorage.setItem(THEME_KEY, enabled ? "night" : "day");
+  } catch {
+    // ignore
+  }
+}
+
+function loadLocalGoals() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(LOCAL_GOALS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((goal) => goal && typeof goal === "object" && String(goal.id || "").startsWith("local-"))
+      .map((goal) => ({
+        id: String(goal.id),
+        title: typeof goal.title === "string" ? goal.title : "Untitled goal",
+        tasks: Array.isArray(goal.tasks)
+          ? goal.tasks.map((task) => ({
+              id: typeof task.id === "string" ? task.id : `local-task-${makeId()}`,
+              text: typeof task.text === "string" ? task.text : "",
+              done: Boolean(task.done),
+              minutes: Number.isFinite(task.minutes) ? task.minutes : 15,
+              createdAt: Number.isFinite(task.createdAt) ? task.createdAt : Date.now(),
+            }))
+          : [],
+        aiLoading: false,
+        aiError: "",
+        createdAt: Number.isFinite(goal.createdAt) ? goal.createdAt : Date.now(),
+      }))
+      .slice(0, MAX_GOALS);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalGoals(goals) {
+  if (typeof window === "undefined") return;
+  const localOnly = goals
+    .filter((goal) => String(goal.id || "").startsWith("local-"))
+    .map((goal) => ({
+      id: goal.id,
+      title: goal.title,
+      createdAt: goal.createdAt,
+      tasks: Array.isArray(goal.tasks)
+        ? goal.tasks.map((task) => ({
+            id: task.id,
+            text: task.text,
+            done: Boolean(task.done),
+            minutes: Number.isFinite(task.minutes) ? task.minutes : 15,
+            createdAt: Number.isFinite(task.createdAt) ? task.createdAt : Date.now(),
+          }))
+        : [],
+    }));
+  try {
+    window.localStorage.setItem(LOCAL_GOALS_KEY, JSON.stringify(localOnly));
+  } catch {
+    // ignore
+  }
+}
+
+function parseCssColor(input) {
+  if (typeof input !== "string") return null;
+  const value = input.trim();
+  const hexMatch = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    const fullHex = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+    const int = Number.parseInt(fullHex, 16);
+    return {
+      r: (int >> 16) & 255,
+      g: (int >> 8) & 255,
+      b: int & 255,
+      a: 1,
+    };
+  }
+  const rgbMatch = value.match(
+    /^rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})(?:\s*[,/]\s*(\d*\.?\d+))?\s*\)$/i
+  );
+  if (rgbMatch) {
+    return {
+      r: Math.max(0, Math.min(255, Number(rgbMatch[1]))),
+      g: Math.max(0, Math.min(255, Number(rgbMatch[2]))),
+      b: Math.max(0, Math.min(255, Number(rgbMatch[3]))),
+      a: rgbMatch[4] != null ? Math.max(0, Math.min(1, Number(rgbMatch[4]))) : 1,
+    };
+  }
+  return null;
+}
+
+function toRelativeLuminance({ r, g, b }) {
+  const channel = (c) => {
+    const scaled = c / 255;
+    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(colorA, colorB) {
+  const lumA = toRelativeLuminance(colorA);
+  const lumB = toRelativeLuminance(colorB);
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function ensureReadableText(textColor, backgroundColor) {
+  const fg = parseCssColor(textColor);
+  const bg = parseCssColor(backgroundColor);
+  if (!fg || !bg) return textColor;
+  if (contrastRatio(fg, bg) >= 4.5) return textColor;
+  const black = { r: 12, g: 12, b: 12, a: 1 };
+  const white = { r: 245, g: 245, b: 245, a: 1 };
+  return contrastRatio(black, bg) >= contrastRatio(white, bg) ? "#0c0c0c" : "#f5f5f5";
+}
+
 export default function App() {
   const { user } = useUser();
   const { getToken } = useAuth();
@@ -182,9 +376,13 @@ export default function App() {
   const [newGoalTitle, setNewGoalTitle] = useState("");
   const [goalSections, setGoalSections] = useState({});
   const [goalTitleEditing, setGoalTitleEditing] = useState({});
+  const [taskDrafts, setTaskDrafts] = useState({});
   const [bgPref, setBgPref] = useState(loadBgPref);
-  const [showImageUrlInput, setShowImageUrlInput] = useState(false);
+  const [quotes, setQuotes] = useState(loadQuotes);
+  const [quoteInput, setQuoteInput] = useState("");
+  const [nightMode, setNightMode] = useState(loadNightMode);
   const [loadingGoals, setLoadingGoals] = useState(true);
+  const [goalsHydrated, setGoalsHydrated] = useState(false);
   const [dataError, setDataError] = useState("");
 
   const loginName = user?.firstName || user?.fullName || user?.username || "";
@@ -203,6 +401,19 @@ export default function App() {
   useEffect(() => {
     saveBgPref(bgPref);
   }, [bgPref]);
+
+  useEffect(() => {
+    saveQuotes(quotes);
+  }, [quotes]);
+
+  useEffect(() => {
+    saveNightMode(nightMode);
+  }, [nightMode]);
+
+  useEffect(() => {
+    if (!goalsHydrated) return;
+    saveLocalGoals(goals);
+  }, [goals, goalsHydrated]);
 
   useEffect(() => {
     if (!ownerName.trim() && loginName) {
@@ -253,16 +464,18 @@ export default function App() {
     async function loadGoalsFromSupabase() {
       if (!user) {
         if (!cancelled) {
-          setGoals([]);
+          setGoals(loadLocalGoals());
           setLoadingGoals(false);
+          setGoalsHydrated(true);
         }
         return;
       }
       if (!supabase) {
         if (!cancelled) {
-          setGoals([]);
+          setGoals(loadLocalGoals());
           setLoadingGoals(false);
           setDataError("Supabase is not configured. Check environment variables.");
+          setGoalsHydrated(true);
         }
         return;
       }
@@ -314,21 +527,28 @@ export default function App() {
         }
 
         if (!cancelled) {
-          setGoals(
-            (tasksData || []).map((row) => ({
-              id: row.id,
-              title: row.title || "Untitled goal",
-              tasks: stepsByTask[row.id] || [],
-              aiLoading: false,
-              aiError: "",
-              createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-            }))
-          );
+          const remoteGoals = (tasksData || []).map((row) => ({
+            id: row.id,
+            title: row.title || "Untitled goal",
+            tasks: stepsByTask[row.id] || [],
+            aiLoading: false,
+            aiError: "",
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+          }));
+          const localGoals = loadLocalGoals();
+          const mergedById = new Map();
+          [...localGoals, ...remoteGoals].forEach((goal) => {
+            mergedById.set(goal.id, goal);
+          });
+          setGoals(Array.from(mergedById.values()).slice(0, MAX_GOALS));
+          setGoalsHydrated(true);
         }
       } catch (error) {
         if (!cancelled) {
           console.error("Supabase tasks load error:", error);
+          setGoals(loadLocalGoals());
           setDataError(formatSupabaseError(error, "Failed to load tasks from Supabase."));
+          setGoalsHydrated(true);
         }
       } finally {
         if (!cancelled) {
@@ -342,46 +562,67 @@ export default function App() {
     };
   }, [user?.id, supabase]);
 
-  const appBackgroundStyle = useMemo(() => {
-    const selectedGradient =
-      GRADIENT_PRESETS.find((g) => g.id === bgPref.gradientId) || GRADIENT_PRESETS[0];
-    const baseGradient = `linear-gradient(135deg, rgb(${selectedGradient.start}), rgb(${selectedGradient.end}))`;
-    const overlay = `linear-gradient(rgba(255,255,255,${Math.max(
-      0,
-      Math.min(100, bgPref.overlayOpacity)
-    ) / 100}), rgba(255,255,255,${Math.max(0, Math.min(100, bgPref.overlayOpacity)) / 100}))`;
-
-    if (bgPref.mode === "image" && bgPref.imageUrl) {
-      return {
-        backgroundImage: `${overlay}, ${baseGradient}, url("${bgPref.imageUrl}")`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      };
-    }
-    return {
-      backgroundImage: `${overlay}, ${baseGradient}`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-    };
-  }, [bgPref]);
+  const collageTiles = useMemo(() => {
+    const defaults = COLLAGE_COLORS.map((color) => ({ type: "color", value: color }));
+    const parsedTiles = Array.isArray(bgPref.collageTiles) ? bgPref.collageTiles.slice(0, 9) : [];
+    return [...parsedTiles, ...defaults.slice(parsedTiles.length, 9)].slice(0, 9);
+  }, [bgPref.collageTiles]);
 
   const appFrameStyle = useMemo(
     () => ({
-      background: `rgba(248, 250, 237, ${Math.max(0, Math.min(100, bgPref.boardOpacity)) / 100})`,
       backdropFilter: `blur(${Math.max(0, Math.min(20, bgPref.boardBlur))}px)`,
-      borderRadius: `${Math.max(16, Math.min(64, bgPref.boardRadius))}px`,
     }),
     [bgPref]
+  );
+  const appThemeStyle = useMemo(
+    () => {
+      const surface = bgPref.theme?.surface || "rgba(255, 255, 255, 0.95)";
+      const text = ensureReadableText(bgPref.theme?.text || "#181717", surface);
+      const muted = ensureReadableText(bgPref.theme?.muted || "rgba(24, 23, 23, 0.62)", surface);
+      return {
+        "--primary": bgPref.theme?.primary || "#a91818",
+        "--primaryHover": bgPref.theme?.primaryHover || "#8f1414",
+        "--text": text,
+        "--muted": muted,
+        "--border": bgPref.theme?.border || "rgba(24, 23, 23, 0.1)",
+        "--surface": surface,
+        "--surface2": bgPref.theme?.surface2 || "#f8faed",
+      };
+    },
+    [bgPref.theme]
   );
 
   function updateGoal(goalId, updater) {
     setGoals((prev) => prev.map((goal) => (goal.id === goalId ? updater(goal) : goal)));
   }
 
+  function isLocalGoal(goalId) {
+    return String(goalId).startsWith("local-");
+  }
+
+  function isRlsError(error) {
+    const code = String(error?.code || "");
+    const message = String(error?.message || "").toLowerCase();
+    return code === "42501" || message.includes("row-level security");
+  }
+
   async function handleAddGoal(e) {
     e.preventDefault();
     const title = newGoalTitle.trim();
-    if (!title || goals.length >= MAX_GOALS || !supabase) return;
+    if (!title || goals.length >= MAX_GOALS) return;
+    if (!supabase) {
+      const localGoal = {
+        id: `local-${makeId()}`,
+        title,
+        tasks: [],
+        aiLoading: false,
+        aiError: "",
+        createdAt: Date.now(),
+      };
+      setGoals((prev) => [localGoal, ...prev]);
+      setNewGoalTitle("");
+      return;
+    }
     setDataError("");
     try {
       let data = null;
@@ -419,12 +660,38 @@ export default function App() {
       setGoals((prev) => [nextGoal, ...prev]);
       setNewGoalTitle("");
     } catch (error) {
+      if (isRlsError(error)) {
+        const localGoal = {
+          id: `local-${makeId()}`,
+          title,
+          tasks: [],
+          aiLoading: false,
+          aiError: "",
+          createdAt: Date.now(),
+        };
+        setGoals((prev) => [localGoal, ...prev]);
+        setNewGoalTitle("");
+        setDataError("");
+        return;
+      }
       console.error("Supabase add goal error:", error);
       setDataError(formatSupabaseError(error, "Could not add goal."));
     }
   }
 
-  async function addTask(goalId) {
+  async function addTask(goalId, customText = "New task") {
+    const safeText = String(customText || "").trim() || "New task";
+    if (isLocalGoal(goalId)) {
+      const nextStep = {
+        id: `local-task-${makeId()}`,
+        text: safeText,
+        done: false,
+        minutes: 15,
+        createdAt: Date.now(),
+      };
+      updateGoal(goalId, (goal) => ({ ...goal, tasks: [...goal.tasks, nextStep] }));
+      return;
+    }
     if (!supabase) return;
     setDataError("");
     try {
@@ -432,7 +699,7 @@ export default function App() {
         .from("task_steps")
         .insert({
           task_id: goalId,
-          text: "New task",
+          text: safeText,
           done: false,
           minutes: 15,
         })
@@ -447,6 +714,13 @@ export default function App() {
     }
   }
 
+  async function addTaskFromDraft(goalId) {
+    const draft = (taskDrafts[goalId] || "").trim();
+    if (!draft) return;
+    await addTask(goalId, draft);
+    setTaskDrafts((prev) => ({ ...prev, [goalId]: "" }));
+  }
+
   function updateTask(goalId, taskId, updater) {
     updateGoal(goalId, (goal) => ({
       ...goal,
@@ -455,6 +729,7 @@ export default function App() {
   }
 
   async function persistStep(goalId, taskId, patch) {
+    if (isLocalGoal(goalId)) return;
     if (!supabase) return;
     const { error } = await supabase
       .from("task_steps")
@@ -467,6 +742,13 @@ export default function App() {
   }
 
   async function removeTask(goalId, taskId) {
+    if (isLocalGoal(goalId)) {
+      updateGoal(goalId, (goal) => ({
+        ...goal,
+        tasks: goal.tasks.filter((task) => task.id !== taskId),
+      }));
+      return;
+    }
     if (!supabase) return;
     setDataError("");
     const previousGoals = goals;
@@ -489,6 +771,10 @@ export default function App() {
   }
 
   async function removeGoal(goalId) {
+    if (isLocalGoal(goalId)) {
+      setGoals((prev) => prev.filter((goal) => goal.id !== goalId));
+      return;
+    }
     if (!supabase) return;
     setDataError("");
     const previousGoals = goals;
@@ -573,20 +859,29 @@ export default function App() {
 
     try {
       const data = await fetchAIBreakdown({ title, description });
-      if (!supabase) throw new Error("Supabase client not ready.");
       const payload = data.steps.map((step) => ({
         task_id: goalId,
         text: typeof step?.text === "string" ? step.text : "",
         done: false,
         minutes: Number.isFinite(step?.minutes) ? step.minutes : 15,
       }));
-      await supabase.from("task_steps").delete().eq("task_id", goalId);
-      const { data: insertedRows, error: insertError } = await supabase
-        .from("task_steps")
-        .insert(payload)
-        .select("id, task_id, text, done, minutes, created_at");
-      if (insertError) throw insertError;
-      const tasks = (insertedRows || []).map(normalizeTaskStepRow);
+      let tasks = payload.map((step) => ({
+        id: `local-task-${makeId()}`,
+        text: step.text,
+        done: false,
+        minutes: step.minutes,
+        createdAt: Date.now(),
+      }));
+
+      if (!isLocalGoal(goalId) && supabase) {
+        await supabase.from("task_steps").delete().eq("task_id", goalId);
+        const { data: insertedRows, error: insertError } = await supabase
+          .from("task_steps")
+          .insert(payload)
+          .select("id, task_id, text, done, minutes, created_at");
+        if (insertError) throw insertError;
+        tasks = (insertedRows || []).map(normalizeTaskStepRow);
+      }
 
       updateGoal(goalId, (goal) => ({
         ...goal,
@@ -601,7 +896,7 @@ export default function App() {
           : "AI breakdown failed. Try again.";
 
       let fallbackTasks = buildScopeFromTemplate(title);
-      if (supabase) {
+      if (supabase && !isLocalGoal(goalId)) {
         try {
           const payload = fallbackTasks.map((step) => ({
             task_id: goalId,
@@ -648,51 +943,132 @@ export default function App() {
       safeTitle = goal.title.trim() || "Untitled goal";
       return { ...goal, title: safeTitle };
     });
-    if (!supabase || !safeTitle) return;
+    if (isLocalGoal(goalId) || !supabase || !safeTitle) return;
     void supabase.from("tasks").update({ title: safeTitle }).eq("id", goalId);
   }
 
-  function setGradientBackground(gradientId) {
-    setBgPref((prev) => ({ ...prev, mode: "gradient", gradientId }));
+  function fileToDataUrl(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve(typeof reader.result === "string" ? reader.result : "");
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
-  function setImageBackground(imageUrl) {
-    if (!imageUrl.trim()) {
-      setBgPref((prev) => ({ ...prev, mode: "gradient", imageUrl: "", imageLabel: "" }));
-      return;
-    }
+  async function onUploadBackground(fileList) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (files.length === 0) return;
+    const urls = (await Promise.all(files.map((file) => fileToDataUrl(file)))).filter(Boolean);
+    if (urls.length === 0) return;
+    setBgPref((prev) => {
+      const nextTiles = Array.isArray(prev.collageTiles)
+        ? [...prev.collageTiles]
+        : COLLAGE_COLORS.map((color) => ({ type: "color", value: color }));
+      const baseIndex =
+        Number.isFinite(prev.selectedTile) && prev.selectedTile >= 0 && prev.selectedTile < 9
+          ? prev.selectedTile
+          : 0;
+      urls.slice(0, 9).forEach((url, idx) => {
+        const tileIndex = (baseIndex + idx) % 9;
+        nextTiles[tileIndex] = { type: "image", value: url };
+      });
+      return {
+        ...prev,
+        collageTiles: nextTiles.slice(0, 9),
+      };
+    });
+  }
+
+  function selectCollageTile(index) {
+    setBgPref((prev) => ({ ...prev, selectedTile: index }));
+  }
+
+  function setSelectedTileColor(color) {
+    const isHex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(color || "").trim());
+    if (!isHex) return;
+    setBgPref((prev) => {
+      const index =
+        Number.isFinite(prev.selectedTile) && prev.selectedTile >= 0 && prev.selectedTile < 9
+          ? prev.selectedTile
+          : 0;
+      const nextTiles = Array.isArray(prev.collageTiles)
+        ? [...prev.collageTiles]
+        : COLLAGE_COLORS.map((entry) => ({ type: "color", value: entry }));
+      nextTiles[index] = { type: "color", value: color };
+      return { ...prev, collageTiles: nextTiles.slice(0, 9) };
+    });
+  }
+
+  function clearSelectedTileImage() {
+    setBgPref((prev) => {
+      const index =
+        Number.isFinite(prev.selectedTile) && prev.selectedTile >= 0 && prev.selectedTile < 9
+          ? prev.selectedTile
+          : 0;
+      const nextTiles = Array.isArray(prev.collageTiles)
+        ? [...prev.collageTiles]
+        : COLLAGE_COLORS.map((entry) => ({ type: "color", value: entry }));
+      const fallbackColor = COLLAGE_COLORS[index % COLLAGE_COLORS.length];
+      nextTiles[index] = { type: "color", value: fallbackColor };
+      return { ...prev, collageTiles: nextTiles.slice(0, 9) };
+    });
+  }
+
+  function setThemeColor(key, value) {
+    const clean = String(value || "").trim();
+    const isHex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(clean);
+    if (!isHex && !["surface", "surface2", "border", "muted"].includes(key)) return;
     setBgPref((prev) => ({
       ...prev,
-      mode: "image",
-      imageUrl: imageUrl.trim(),
-      imageLabel: "Custom URL image",
+      theme: {
+        ...(prev.theme || {}),
+        [key]: clean,
+      },
     }));
   }
 
-  function onUploadBackground(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      if (!result) return;
-      setBgPref((prev) => ({
-        ...prev,
-        mode: "image",
-        imageUrl: result,
-        imageLabel: file.name || "Uploaded image",
-      }));
-    };
-    reader.readAsDataURL(file);
+  function addQuote(e) {
+    e.preventDefault();
+    const text = quoteInput.trim();
+    if (!text) return;
+    setQuotes((prev) => [text, ...prev].slice(0, 10));
+    setQuoteInput("");
+  }
+
+  function removeQuote(index) {
+    setQuotes((prev) => prev.filter((_, i) => i !== index));
   }
 
   return (
-    <div className="appShell" style={appBackgroundStyle}>
+    <div className={nightMode ? "appShell nightMode" : "appShell"} style={appThemeStyle}>
+      <div className="collageBackdrop">
+        {collageTiles.map((tile, index) => (
+          <div
+            key={`collage-${index}`}
+            className="collageTile"
+            style={
+              tile.type === "image"
+                ? { backgroundImage: `url("${tile.value}")` }
+                : { backgroundColor: tile.value }
+            }
+          />
+        ))}
+      </div>
       <div className="appFrame" style={appFrameStyle}>
         <div className="topBar">
           <div className="brand">
             <h1>2026 Progress Tracker</h1>
             <span className="sub">Build daily consistency across your goals.</span>
           </div>
+          <button
+            type="button"
+            className="buttonLight themeToggleBtn"
+            onClick={() => setNightMode((prev) => !prev)}
+          >
+            {nightMode ? "Day view" : "Night view"}
+          </button>
         </div>
 
         <SignedOut>
@@ -751,11 +1127,49 @@ export default function App() {
             </div>
           </div>
 
-          <div className="card bgPersonalizeCard" style={{ gridColumn: "1 / -1" }}>
+          <div className="card goalSectionCard quotesCard" style={{ gridColumn: "1 / -1" }}>
+            <div className="quotesHeader">
+              <span className="quotesTitle">Motivation Quotes</span>
+            </div>
+            <form className="quotesForm" onSubmit={addQuote}>
+              <input
+                className="input"
+                value={quoteInput}
+                onChange={(e) => setQuoteInput(e.target.value)}
+                placeholder="Add a quote that keeps you going"
+              />
+              <button type="submit" className="button" disabled={!quoteInput.trim()}>
+                Add quote
+              </button>
+            </form>
+            {quotes.length > 0 ? (
+              <div className="quotesList">
+                {quotes.map((quote, index) => (
+                  <div className="quoteItem" key={`${quote}-${index}`}>
+                    <span>{quote}</span>
+                    <button
+                      type="button"
+                      className="buttonLight quoteDeleteBtn"
+                      onClick={() => removeQuote(index)}
+                      aria-label="Delete quote"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mutedText quotesEmpty">No quotes yet. Add one above.</p>
+            )}
+          </div>
+
+          <details className="card bgPersonalizeCard goalSectionCard" style={{ gridColumn: "1 / -1" }}>
+            <summary className="visionSummary">
+              <span>Vision board collage</span>
+            </summary>
             <div className="bgPanelHeader">
               <div>
-                <div className="bgPanelTitle">Background Style</div>
-                <div className="bgPanelSub">Pick a visual mood and tune details only if needed.</div>
+                <div className="bgPanelSub">Select a block, then set a color or image for it.</div>
               </div>
               <button
                 type="button"
@@ -763,12 +1177,19 @@ export default function App() {
                 onClick={() =>
                   setBgPref((prev) => ({
                     ...prev,
-                    mode: "gradient",
-                    gradientId: "sage-dawn",
-                    imageUrl: "",
-                    imageLabel: "",
+                    collageTiles: COLLAGE_COLORS.map((color) => ({ type: "color", value: color })),
+                    selectedTile: 0,
+                    theme: {
+                      primary: "#a91818",
+                      primaryHover: "#8f1414",
+                      text: "#181717",
+                      muted: "rgba(24, 23, 23, 0.62)",
+                      border: "rgba(24, 23, 23, 0.1)",
+                      surface: "rgba(255, 255, 255, 0.95)",
+                      surface2: "#f8faed",
+                    },
                     overlayOpacity: 20,
-                    boardOpacity: 92,
+                    boardOpacity: 94,
                     boardBlur: 2,
                     boardRadius: 48,
                   }))
@@ -780,84 +1201,83 @@ export default function App() {
 
             <div className="bgQuickRow">
               <div className="bgQuickBlock">
-                <div className="bgLabel">Theme</div>
-                <div className="bgColorSet">
-                  {GRADIENT_PRESETS.map((preset) => (
+                <div className="bgLabel">Collage Blocks</div>
+                <div className="collageSelectorGrid">
+                  {collageTiles.map((tile, index) => (
                     <button
-                      key={preset.id}
+                      key={`selector-${index}`}
                       type="button"
                       className={
-                        bgPref.gradientId === preset.id
-                          ? "bgGradientSwatch bgGradientSwatchActive"
-                          : "bgGradientSwatch"
+                        bgPref.selectedTile === index
+                          ? "collageSelectorTile collageSelectorTileActive"
+                          : "collageSelectorTile"
                       }
-                      style={{
-                        backgroundImage: `linear-gradient(135deg, rgb(${preset.start}), rgb(${preset.end}))`,
-                      }}
-                      onClick={() => setGradientBackground(preset.id)}
-                      aria-label={`Set gradient ${preset.name}`}
-                      title={preset.name}
+                      onClick={() => selectCollageTile(index)}
+                      style={
+                        tile.type === "image"
+                          ? { backgroundImage: `url("${tile.value}")` }
+                          : { backgroundColor: tile.value }
+                      }
+                      aria-label={`Select collage block ${index + 1}`}
+                      title={`Block ${index + 1}`}
                     />
                   ))}
                 </div>
               </div>
 
               <div className="bgQuickBlock">
-                <div className="bgLabel">Image</div>
+                <div className="bgLabel">Block Controls</div>
                 <div className="bgActionRow">
+                  <label className="buttonLight colorPickerBtn">
+                    Color
+                    <input
+                      type="color"
+                      value={
+                        collageTiles[bgPref.selectedTile]?.type === "color"
+                          ? collageTiles[bgPref.selectedTile]?.value
+                          : "#d9e4cc"
+                      }
+                      onChange={(e) => setSelectedTileColor(e.target.value)}
+                      style={{ display: "none" }}
+                    />
+                  </label>
+                  <input
+                    className="input hexInput"
+                    key={`tile-hex-${bgPref.selectedTile}`}
+                    defaultValue={
+                      collageTiles[bgPref.selectedTile]?.type === "color"
+                        ? collageTiles[bgPref.selectedTile]?.value
+                        : ""
+                    }
+                    placeholder="#d9e4cc"
+                    onBlur={(e) => setSelectedTileColor(e.target.value)}
+                  />
                   <label className="buttonLight fileUploadBtn">
-                    Upload
+                    Upload image
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => onUploadBackground(e.target.files?.[0])}
+                      onChange={(e) => {
+                        onUploadBackground(e.target.files);
+                        e.target.value = "";
+                      }}
                       style={{ display: "none" }}
                     />
                   </label>
                   <button
                     type="button"
                     className="buttonLight"
-                    onClick={() => setShowImageUrlInput((prev) => !prev)}
+                    onClick={clearSelectedTileImage}
                   >
-                    {showImageUrlInput ? "Hide URL" : "Image URL"}
+                    Clear image
                   </button>
-                  {bgPref.mode === "image" && bgPref.imageUrl ? (
-                    <button
-                      type="button"
-                      className="buttonLight"
-                      onClick={() =>
-                        setBgPref((prev) => ({
-                          ...prev,
-                          mode: "gradient",
-                          imageUrl: "",
-                          imageLabel: "",
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
-                  ) : null}
+                </div>
+                <div className="bgStatusRow">
+                  <span className="bgStatusPill">Editing block {Number(bgPref.selectedTile || 0) + 1}</span>
                 </div>
               </div>
             </div>
 
-            {showImageUrlInput ? (
-              <div className="bgPersonalizeRow" style={{ marginTop: 10 }}>
-                <input
-                  className="input bgImageInput"
-                  placeholder="Paste background image URL"
-                  defaultValue={bgPref.mode === "image" ? bgPref.imageUrl : ""}
-                  onBlur={(e) => setImageBackground(e.target.value)}
-                />
-              </div>
-            ) : null}
-            {bgPref.mode === "image" && bgPref.imageUrl ? (
-              <div className="bgStatusRow">
-                <span className="bgStatusPill">
-                  Image applied{bgPref.imageLabel ? `: ${bgPref.imageLabel}` : ""}
-                </span>
-              </div>
-            ) : null}
             <details className="bgAdvanced">
               <summary>Advanced controls</summary>
               <div className="bgControlsGrid">
@@ -909,11 +1329,67 @@ export default function App() {
                     }
                   />
                 </label>
+                <label className="bgControl">
+                  <span>Primary Hex</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.primary || "#a91818"}
+                    onBlur={(e) => setThemeColor("primary", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Primary Hover Hex</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.primaryHover || "#8f1414"}
+                    onBlur={(e) => setThemeColor("primaryHover", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Text Hex</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.text || "#181717"}
+                    onBlur={(e) => setThemeColor("text", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Muted Color</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.muted || "rgba(24, 23, 23, 0.62)"}
+                    onBlur={(e) => setThemeColor("muted", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Card Surface</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.surface || "rgba(255, 255, 255, 0.95)"}
+                    onBlur={(e) => setThemeColor("surface", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Page Surface</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.surface2 || "#f8faed"}
+                    onBlur={(e) => setThemeColor("surface2", e.target.value)}
+                  />
+                </label>
+                <label className="bgControl">
+                  <span>Border Color</span>
+                  <input
+                    className="input hexInput"
+                    defaultValue={bgPref.theme?.border || "rgba(24, 23, 23, 0.1)"}
+                    onBlur={(e) => setThemeColor("border", e.target.value)}
+                  />
+                </label>
               </div>
             </details>
-          </div>
+          </details>
 
-	          <div className="card" style={{ gridColumn: "1 / -1" }}>
+	          <div className="card goalSectionCard" style={{ gridColumn: "1 / -1" }}>
             <form onSubmit={handleAddGoal} className="goalAddForm">
               <input
                 className="input"
@@ -937,20 +1413,20 @@ export default function App() {
 	          </div>
 
           {dataError ? (
-            <div className="card" style={{ gridColumn: "1 / -1" }}>
+            <div className="card goalSectionCard" style={{ gridColumn: "1 / -1" }}>
               <div className="errorText">{dataError}</div>
             </div>
           ) : null}
 
 	          <div className="goalTablesWrap">
 	            {loadingGoals ? (
-                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                <div className="card goalSectionCard" style={{ gridColumn: "1 / -1" }}>
                   <p className="mutedText" style={{ margin: 0 }}>
                     Loading tasks...
                   </p>
                 </div>
               ) : goals.length === 0 ? (
-	              <div className="card" style={{ gridColumn: "1 / -1" }}>
+	              <div className="card goalSectionCard" style={{ gridColumn: "1 / -1" }}>
 	                <p className="mutedText" style={{ margin: 0 }}>
 	                  No goal tables yet. Add your first 2026 goal to get started.
                 </p>
@@ -968,7 +1444,7 @@ export default function App() {
                 });
 
                 return (
-                  <div className="card goalTableCard" key={goal.id}>
+                  <div className="card goalTableCard goalSectionCard" key={goal.id}>
                     <div className="goalHeader">
                       <div className="goalTitleRow">
                         {goalTitleEditing[goal.id] ? (
@@ -1048,7 +1524,9 @@ export default function App() {
                           className={section === "incomplete" ? "tab tabActive" : "tab"}
                           onClick={() => {
                             setGoalSection(goal.id, "incomplete");
-                            void loadStepsForTask(goal.id);
+                            if (!isLocalGoal(goal.id)) {
+                              void loadStepsForTask(goal.id);
+                            }
                           }}
                         >
                           Incomplete ({incompleteCount})
@@ -1058,7 +1536,9 @@ export default function App() {
                           className={section === "all" ? "tab tabActive" : "tab"}
                           onClick={() => {
                             setGoalSection(goal.id, "all");
-                            void loadStepsForTask(goal.id);
+                            if (!isLocalGoal(goal.id)) {
+                              void loadStepsForTask(goal.id);
+                            }
                           }}
                         >
                           All ({totalTasks})
@@ -1068,11 +1548,38 @@ export default function App() {
                           className={section === "completed" ? "tab tabActive" : "tab"}
                           onClick={() => {
                             setGoalSection(goal.id, "completed");
-                            void loadStepsForTask(goal.id);
+                            if (!isLocalGoal(goal.id)) {
+                              void loadStepsForTask(goal.id);
+                            }
                           }}
                         >
                           Completed ({completedCount})
                         </button>
+                    </div>
+
+                    <div className="goalQuickAdd">
+                      <input
+                        className="input"
+                        value={taskDrafts[goal.id] || ""}
+                        onChange={(e) =>
+                          setTaskDrafts((prev) => ({ ...prev, [goal.id]: e.target.value }))
+                        }
+                        placeholder="Quick add task and press Enter"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void addTaskFromDraft(goal.id);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="buttonLight"
+                        disabled={!String(taskDrafts[goal.id] || "").trim()}
+                        onClick={() => void addTaskFromDraft(goal.id)}
+                      >
+                        Add
+                      </button>
                     </div>
 
                     <div className="taskTableWrapper">

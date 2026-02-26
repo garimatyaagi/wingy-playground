@@ -1,7 +1,7 @@
 :root {
   --bg: #f8faed;
-  --surface: #ffffff;
-  --surface2: #f8faed;
+  --surface: rgba(255, 255, 255, 0.9);
+  --surface2: #f3f1ea;
   --text: #181717;
   --muted: rgba(24, 23, 23, 0.62);
   --border: rgba(24, 23, 23, 0.1);
@@ -34,6 +34,8 @@ a {
 }
 
 .appShell {
+  position: relative;
+  overflow: hidden;
   min-height: 100vh;
   padding: 48px 24px;
   display: flex;
@@ -41,13 +43,50 @@ a {
   align-items: center;
 }
 
+.appShell.nightMode {
+  --bg: #090c12;
+  --surface: #11161f;
+  --surface2: #0d121a;
+  --text: #e8edf7;
+  --muted: rgba(232, 237, 247, 0.64);
+  --border: rgba(232, 237, 247, 0.16);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --primary: #c44e4e;
+  --primarySoft: rgba(92, 129, 180, 0.35);
+  --primaryHover: #a84040;
+  --ring: rgba(196, 78, 78, 0.35);
+}
+
+.collageBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+  filter: saturate(0.9);
+}
+
+.collageTile {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
 .appFrame {
+  position: relative;
+  z-index: 1;
   width: min(1120px, calc(100vw - 48px));
   min-height: min(720px, calc(100vh - 120px));
-  background: var(--surface2);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  background: transparent;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
   padding: 28px;
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) 380px;
@@ -73,6 +112,16 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.themeToggleBtn {
+  min-width: 96px;
 }
 
 .brand {
@@ -111,6 +160,13 @@ a {
   margin-top: 4px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding-left: 12px;
+  padding-right: 12px;
+  backdrop-filter: blur(6px);
 }
 
 .nav {
@@ -153,10 +209,77 @@ a {
 
 .card {
   background: var(--surface);
-  border-radius: 24px;
+  border-radius: 20px;
   border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  box-shadow: 0 16px 34px rgba(24, 23, 23, 0.12);
   padding: 18px 18px 20px;
+}
+
+.goalSectionCard {
+  background: var(--surface);
+  backdrop-filter: blur(1px);
+}
+
+.nightMode .goalSectionCard {
+  background: rgba(17, 22, 31, 0.82);
+}
+
+.quotesCard {
+  padding-top: 14px;
+}
+
+.quotesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.quotesTitle {
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.quotesForm {
+  display: flex;
+  gap: 10px;
+}
+
+.quotesList {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.quoteItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+}
+
+.nightMode .quoteItem {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.quoteDeleteBtn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.quotesEmpty {
+  margin: 10px 0 0;
 }
 
 .row {
@@ -687,6 +810,10 @@ a {
   gap: 4px;
 }
 
+.nightMode .summaryItem {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .summaryItemLabel {
   font-size: 11px;
   text-transform: uppercase;
@@ -702,7 +829,7 @@ a {
   margin-top: 4px;
   width: 100%;
   height: 8px;
-  background: #f0f0f0;
+  background: color-mix(in srgb, var(--surface2) 80%, #d9d9d9 20%);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -717,6 +844,26 @@ a {
   padding-top: 14px;
   padding-bottom: 14px;
   border-radius: 20px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(2px);
+}
+
+.nightMode .bgPersonalizeCard {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.visionSummary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  user-select: none;
+}
+
+.bgPersonalizeCard[open] .visionSummary {
+  margin-bottom: 10px;
 }
 
 .bgPersonalizeRow {
@@ -731,6 +878,28 @@ a {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.collageSelectorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.collageSelectorTile {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.collageSelectorTileActive {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 .bgGradientSwatch {
@@ -789,7 +958,13 @@ a {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 24px rgba(24, 23, 23, 0.12);
+}
+
+.nightMode .bgQuickBlock {
+  background: rgba(17, 22, 31, 0.86);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
 }
 
 .bgLabel {
@@ -813,6 +988,16 @@ a {
   overflow: hidden;
 }
 
+.colorPickerBtn {
+  position: relative;
+  overflow: hidden;
+}
+
+.hexInput {
+  min-width: 120px;
+  max-width: 180px;
+}
+
 .bgStatusRow {
   margin-top: 10px;
   display: flex;
@@ -830,12 +1015,20 @@ a {
   background: rgba(255, 255, 255, 0.6);
 }
 
+.nightMode .bgStatusPill {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .bgAdvanced {
   margin-top: 10px;
   border: 1px dashed var(--border);
   border-radius: 12px;
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.35);
+}
+
+.nightMode .bgAdvanced {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .bgAdvanced summary {
@@ -880,13 +1073,22 @@ a {
 .goalTablesWrap {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .goalTableCard {
   display: flex;
   flex-direction: column;
+  background: var(--surface);
+  border-left: 4px solid color-mix(in srgb, var(--primary) 65%, var(--surface) 35%);
+  box-shadow: 0 18px 35px rgba(24, 23, 23, 0.14);
+}
+
+.goalQuickAdd {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .goalHeader {
@@ -980,6 +1182,10 @@ a {
 }
 
 @media (max-width: 760px) {
+  .goalTablesWrap {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .progressSummaryRow {
     grid-template-columns: 1fr;
   }
@@ -992,13 +1198,26 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .collageBackdrop {
+    gap: 4px;
+    padding: 4px;
+  }
+
   .goalAddForm {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .quotesForm {
+    flex-direction: column;
+  }
+
   .goalHeader {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .goalQuickAdd {
+    flex-direction: column;
   }
 }

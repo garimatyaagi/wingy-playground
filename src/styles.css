@@ -674,7 +674,7 @@ a {
 
 .progressSummaryRow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -711,6 +711,164 @@ a {
   display: block;
   height: 100%;
   background: var(--primary);
+}
+
+.bgPersonalizeCard {
+  padding-top: 14px;
+  padding-bottom: 14px;
+  border-radius: 20px;
+}
+
+.bgPersonalizeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bgColorSet {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bgGradientSwatch {
+  width: 34px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.bgGradientSwatchActive {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.bgImageInput {
+  min-width: 240px;
+  flex: 1;
+}
+
+.bgPanelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bgPanelTitle {
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4d4d4d;
+}
+
+.bgPanelSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bgResetBtn {
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.bgQuickRow {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.bgQuickBlock {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.bgLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.bgActionRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fileUploadBtn {
+  position: relative;
+  overflow: hidden;
+}
+
+.bgStatusRow {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bgStatusPill {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.bgAdvanced {
+  margin-top: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.bgAdvanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.bgAdvanced[open] summary {
+  margin-bottom: 8px;
+}
+
+.bgControlsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.bgControl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.bgControl input[type="range"] {
+  width: 100%;
+  accent-color: #7c8b81;
 }
 
 .goalAddForm {
@@ -791,80 +949,47 @@ a {
   flex-wrap: wrap;
 }
 
-.doneToggle {
+.taskIconBtn {
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
-  padding: 6px 10px;
+  padding: 5px 8px;
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast),
     color var(--transition-fast);
+  margin-right: 6px;
 }
 
-.doneToggle:hover {
+.taskIconBtn:hover {
   border-color: var(--primary);
 }
 
-.doneToggleOn {
+.taskIconBtnDone {
   background: #e7f6ea;
   border-color: #236437;
   color: #236437;
 }
 
-.statusSignal {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.signalDone {
-  background: #e7f6ea;
-  color: #236437;
-}
-
-.signalDelayed {
-  background: #ffe7e7;
-  color: #9e1e1e;
-}
-
-.signalPlanned {
-  background: #e7f1ff;
-  color: #184e9d;
-}
-
-.taskRowActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: flex-start;
-}
-
-.deleteTaskBtn {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  padding: 4px 9px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.deleteTaskBtn:hover {
+.taskIconBtnDelete:hover {
   border-color: #9e1e1e;
   color: #9e1e1e;
+  background: #ffecec;
 }
 
 @media (max-width: 760px) {
   .progressSummaryRow {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+  }
+
+  .bgControlsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .bgQuickRow {
+    grid-template-columns: 1fr;
   }
 
   .goalAddForm {

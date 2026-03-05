@@ -9,6 +9,7 @@ import {
   useUser,
 } from "@clerk/clerk-react";
 import { createClerkSupabaseClient } from "./lib/supabaseClient";
+import Landing from "./pages/Landing";
 
 const OWNER_NAME_KEY = "mini_planner_owner_name_v1";
 const MAX_GOALS = 20;
@@ -368,6 +369,10 @@ function ensureReadableText(textColor, backgroundColor) {
 }
 
 export default function App() {
+  if (typeof window !== "undefined" && window.location.pathname === "/") {
+    return <Landing />;
+  }
+
   const { user } = useUser();
   const { getToken } = useAuth();
   const [goals, setGoals] = useState([]);

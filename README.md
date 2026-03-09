@@ -27,3 +27,24 @@ VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 
 This app uses Clerk JWTs for Supabase requests.  
 Create a Clerk JWT template named `supabase` and configure Supabase to trust Clerk-issued tokens for your project.
+
+## WhatsApp Agent Setup (Twilio)
+
+To enable WhatsApp delivery for morning briefs and follow-ups, add:
+
+```bash
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+WHATSAPP_TO=whatsapp:+<your_number>
+VITE_WHATSAPP_TO=whatsapp:+<your_number>   # used by browser send action
+```
+
+Available agent endpoints:
+
+- `POST /api/agent/parse` - classify free-form WhatsApp text into goal/task/note/ambiguous
+- `POST /api/agent/morning-brief` - format a morning brief message from plan payload
+- `POST /api/agent/evening-followup` - format evening check-in prompt
+- `POST /api/agent/replan` - generate replan adjustments from check-in outcomes
+- `POST /api/agent/whatsapp-send` - send WhatsApp message via Twilio
+- `POST /api/agent/whatsapp-webhook` - Twilio inbound webhook entrypoint

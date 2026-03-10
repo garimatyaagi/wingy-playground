@@ -92,12 +92,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Allow Vercel cron (no auth needed) or external cron with CRON_SECRET
+  // Vercel cron sends Authorization: Bearer <CRON_SECRET> automatically
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
-    const authHeader = req.headers.authorization || "";
+    const authHeader = String(req.headers.authorization || "").trim();
     const isVercelCron = req.headers["x-vercel-cron"] === "1";
-    if (!isVercelCron && authHeader !== `Bearer ${cronSecret}`) {
+    const bearerMatch = authHeader === `Bearer ${cronSecret}`;
+    if (!isVercelCron && !bearerMatch) {
+      console.error("scheduler_auth_failed", { hasAuth: !!authHeader, isVercelCron, cronSecretLen: cronSecret.length });
       return res.status(401).json({ error: "Unauthorized" });
     }
   }

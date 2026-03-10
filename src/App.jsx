@@ -949,18 +949,32 @@ export default function App() {
     setToast({ kind, message });
   }
 
-  // Handle Google Calendar OAuth callback
+  // Handle Google Calendar OAuth callback (via postMessage from popup or query params as fallback)
   useEffect(() => {
+    function handleGcalMessage(event) {
+      if (event.data?.type !== "gcal_result") return;
+      if (event.data.status === "connected") {
+        showToast("Google Calendar connected!");
+        updateAgentSetting("googleCalendarConnected", true);
+      } else {
+        showToast("Calendar connection failed: " + (event.data.reason || "unknown"), "error");
+      }
+    }
+    window.addEventListener("message", handleGcalMessage);
+
+    // Fallback: check query params (if popup redirect lands in this tab)
     const params = new URLSearchParams(window.location.search);
     const gcal = params.get("gcal");
     if (gcal === "connected") {
-      showToast("Google Calendar connected successfully!");
+      showToast("Google Calendar connected!");
       updateAgentSetting("googleCalendarConnected", true);
       window.history.replaceState({}, "", window.location.pathname);
     } else if (gcal === "error") {
-      showToast("Google Calendar connection failed: " + (params.get("reason") || "unknown"), "error");
+      showToast("Calendar connection failed: " + (params.get("reason") || "unknown"), "error");
       window.history.replaceState({}, "", window.location.pathname);
     }
+
+    return () => window.removeEventListener("message", handleGcalMessage);
   }, []);
 
   function toneLine(gentle, firm, ruthless) {

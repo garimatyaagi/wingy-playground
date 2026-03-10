@@ -19,7 +19,9 @@ export default async function handler(req, res) {
     const userId = String(req.query?.userId || "").trim();
     if (!userId) return res.status(400).json({ error: "Missing userId" });
     const profile = await getAgentProfileByUserId(userId);
-    return res.status(200).json({ profile });
+    // Expose the agent's WhatsApp number so the frontend can build a wa.me connect link
+    const agentWhatsAppNumber = (process.env.TWILIO_WHATSAPP_FROM || "").replace(/^whatsapp:/, "");
+    return res.status(200).json({ profile, agentWhatsAppNumber });
   }
 
   if (req.method !== "POST") {

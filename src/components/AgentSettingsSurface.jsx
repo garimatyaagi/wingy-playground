@@ -33,6 +33,21 @@ export default function AgentSettingsSurface({
         </div>
         {connection.detail ? <p className="subtle">{connection.detail}</p> : null}
 
+        {connection.agentWhatsAppFrom && settings.whatsAppTo ? (
+          <div style={{ marginTop: "0.5rem" }}>
+            <p className="subtle">Tap below to activate WhatsApp messaging. This sends a one-time "Start" message so the agent can reach you.</p>
+            <a
+              href={`https://wa.me/${connection.agentWhatsAppFrom.replace(/[^0-9]/g, "")}?text=Start`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primaryButton mini"
+              style={{ display: "inline-block", textDecoration: "none", marginTop: "0.4rem" }}
+            >
+              Connect WhatsApp
+            </a>
+          </div>
+        ) : null}
+
         <div className="settingsGrid">
           <label>
             <span className="inputLabel">Morning brief</span>

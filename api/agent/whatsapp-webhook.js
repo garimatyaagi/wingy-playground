@@ -99,6 +99,26 @@ export default async function handler(req, res) {
       processingResult: "received",
     });
 
+    // Handle greeting / activation messages — opens the 24h session window
+    const greeting = rawText.toLowerCase().replace(/[^a-z]/g, "");
+    if (["start", "hi", "hello", "hey"].includes(greeting)) {
+      await updateMessageCapture(captureId, {
+        parsedIntent: "greeting",
+        parseConfidence: 1,
+        parseMethod: "keyword",
+        parseDurationMs: 0,
+        processed: true,
+        createdTaskIds: [],
+        updatedTaskIds: [],
+        clarificationRequested: false,
+        processingResult: "greeting_ack",
+      });
+      await logAgentMessage({ userId, type: "ack", body: "Welcome!", relatedTaskIds: [], metadata: { source: "whatsapp-webhook", intent: "greeting", result: "greeting_ack" } });
+      const welcomeReply = "Hey! I'm your 365 Tasks agent. I'll send you morning briefs, nudges, and evening check-ins on WhatsApp. Just text me tasks like 'Finish pitch deck by Friday' and I'll track them for you.";
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(welcomeReply));
+    }
+
     const parseStart = Date.now();
     const intent = await parseMessageIntentWithLLM(rawText, userId, new Date());
     const parseDurationMs = Date.now() - parseStart;

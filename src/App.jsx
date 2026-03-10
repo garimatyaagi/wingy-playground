@@ -399,6 +399,7 @@ export default function App() {
   const [inboxEditingId, setInboxEditingId] = useState(null);
   const [inboxEditDraft, setInboxEditDraft] = useState({ title: "", goalName: "" });
   const [agentSettings, setAgentSettings] = useState(loadAgentSettings);
+  const [agentWhatsAppFrom, setAgentWhatsAppFrom] = useState("");
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugData, setDebugData] = useState(null);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
@@ -942,8 +943,9 @@ export default function App() {
       detail: hasConfiguredTarget
         ? `Outgoing WhatsApp target: ${agentSettings.whatsAppTo || import.meta.env.VITE_WHATSAPP_TO}`
         : "Add a WhatsApp recipient in Agent Settings to send morning briefs and nudges.",
+      agentWhatsAppFrom,
     };
-  }, [agentSettings.whatsAppTo]);
+  }, [agentSettings.whatsAppTo, agentWhatsAppFrom]);
 
   function showToast(message, kind = "success") {
     setToast({ kind, message });
@@ -2457,6 +2459,7 @@ export default function App() {
         ...data.profile,
         whatsAppTo: data.profile.whatsAppNumber || prev.whatsAppTo,
       }));
+      if (data.agentWhatsAppNumber) setAgentWhatsAppFrom(data.agentWhatsAppNumber);
       if (data.profile?.tone) setAgentTone(data.profile.tone);
     } catch (error) {
       console.error("loadAgentSettingsFromServer failed", { error });

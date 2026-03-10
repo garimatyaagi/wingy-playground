@@ -357,6 +357,7 @@ export async function createTaskStep(userId, taskPayload) {
 
   const fullPayload = {
     task_id: goal.id,
+    user_id: userId,
     text: taskPayload.title,
     done: status === "completed" || status === "done",
     minutes: Number.isFinite(taskPayload.estimatedMinutes) ? taskPayload.estimatedMinutes : 30,
@@ -406,6 +407,7 @@ export async function createTaskStep(userId, taskPayload) {
       .from("task_steps")
       .insert({
         task_id: goal.id,
+        user_id: userId,
         text: taskPayload.title,
         done: false,
         minutes: Number.isFinite(taskPayload.estimatedMinutes) ? taskPayload.estimatedMinutes : 30,

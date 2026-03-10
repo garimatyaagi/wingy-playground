@@ -2,7 +2,7 @@ import {
   fetchAgentDebug,
   normalizePhone,
   resolveInboundUser,
-} from "./store.js";
+} from "./_store.js";
 
 function isDebugAuthorized(req) {
   const required = process.env.AGENT_DEBUG_KEY || "";

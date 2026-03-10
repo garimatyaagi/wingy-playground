@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { toWhatsAppAddress } from "./store.js";
+import { toWhatsAppAddress } from "./_store.js";
 
 function cleanText(value) {
   return String(value || "").trim();

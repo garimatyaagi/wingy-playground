@@ -1,4 +1,4 @@
-import { recomputeDailyPlan } from "./engine.js";
+import { recomputeDailyPlan } from "./_engine.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });

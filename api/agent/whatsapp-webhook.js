@@ -11,17 +11,17 @@ import {
   saveTaskOccurrence,
   updateMessageCapture,
   updateTaskStep,
-} from "./store.js";
+} from "./_store.js";
 import {
   parseMessageIntent,
   recomputeDailyPlan,
   resolveTaskMatch,
-} from "./engine.js";
+} from "./_engine.js";
 import {
   bodyToForm,
   twimlMessage,
   validateTwilioSignature,
-} from "./twilio.js";
+} from "./_twilio.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";

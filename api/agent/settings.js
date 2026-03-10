@@ -1,7 +1,7 @@
 import {
   getAgentProfileByUserId,
   upsertAgentProfile,
-} from "./store.js";
+} from "./_store.js";
 
 export default async function handler(req, res) {
   if (req.method === "GET") {

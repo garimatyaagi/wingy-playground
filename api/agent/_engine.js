@@ -3,7 +3,7 @@ import {
   listOpenTasks,
   logTaskEvent,
   saveDailyPlan,
-} from "./store.js";
+} from "./_store.js";
 
 const ACTION_VERBS = [
   "finish",

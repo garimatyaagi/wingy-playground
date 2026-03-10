@@ -29,22 +29,19 @@ export default function InboxSurface({
   const pendingReview = captures.filter((item) => item.requiresReview && item.status === "pending");
   const whatsappCaptures = captures.filter((item) => item.source === "whatsapp");
   const localCaptures = captures.filter((item) => item.source !== "whatsapp");
+  const hasCaptures = whatsappCaptures.length > 0 || localCaptures.length > 0;
 
   return (
     <section className="inboxSurface">
       <article className="cardShell inboxSimCard">
-        <div className="sectionHeader">
-          <div>
-            <h2>Inbox</h2>
-            <p>Review captured WhatsApp messages and approve only what belongs in execution.</p>
-          </div>
-        </div>
+        <h2>Inbox</h2>
+        <p className="subtle">Messages from WhatsApp and manual input appear here for review.</p>
 
         <textarea
           className="inboxSimInput"
           value={simulateText}
           onChange={(event) => onSimulateTextChange(event.target.value)}
-          placeholder="Simulate incoming WhatsApp message for testing"
+          placeholder="Type or paste a message to process..."
         />
         <div className="inboxSimActions">
           <button type="button" className="primaryButton" onClick={onSimulate} disabled={!simulateText.trim() || processing}>
@@ -60,13 +57,13 @@ export default function InboxSurface({
             {pendingReview.map((item) => (
               <div key={item.id} className="inboxCaptureCard review">
                 <p className="captureText">{item.sourceText}</p>
-                <p className="subtle">Follow-up: {item.followUpQuestion || "Clarify the action."}</p>
+                <p className="subtle">{item.followUpQuestion || "What should this become?"}</p>
                 <div className="captureActions">
                   <button type="button" className="ghostButton mini" onClick={() => onStartEdit(item)}>
                     Edit
                   </button>
                   <button type="button" className="ghostButton mini" onClick={() => onReject(item.id)}>
-                    Reject
+                    Dismiss
                   </button>
                 </div>
               </div>
@@ -75,37 +72,41 @@ export default function InboxSurface({
         </article>
       ) : null}
 
-      <article className="cardShell capturesCard">
-        <h3>WhatsApp captures ({whatsappCaptures.length})</h3>
-        {whatsappCaptures.length === 0 ? (
-          <p className="subtle">No WhatsApp messages received yet. Send a message to your WhatsApp number to see captures here.</p>
-        ) : (
+      {!hasCaptures && pendingReview.length === 0 ? (
+        <article className="cardShell">
+          <div className="emptyHint">
+            <p>No messages yet.</p>
+            <p className="subtle">Send a WhatsApp message to your number, or type one above to test.</p>
+          </div>
+        </article>
+      ) : null}
+
+      {whatsappCaptures.length > 0 ? (
+        <article className="cardShell capturesCard">
+          <h3>WhatsApp ({whatsappCaptures.length})</h3>
           <div className="inboxCardList">
             {whatsappCaptures.map((item) => (
               <div key={item.id} className="inboxCaptureCard">
                 <div className="captureTopRow">
                   <span className="captureType">{prettyType(item.parsedType)}</span>
                   <span className="subtle">{Math.round((item.confidence || 0) * 100)}%</span>
-                  <span className="captureSource">WhatsApp</span>
                 </div>
                 <p className="captureText">{item.sourceText}</p>
                 <p className="subtle">
-                  {item.previewTitle ? `Result: ${item.previewTitle}` : "Processing..."}
+                  {item.previewTitle || "Processing..."}
                   {item.createdTaskIds?.length ? ` · ${item.createdTaskIds.length} task(s) created` : ""}
                   {item.updatedTaskIds?.length ? ` · ${item.updatedTaskIds.length} task(s) updated` : ""}
                 </p>
-                <p className="subtle">
-                  {prettyTime(item.createdAt)} · Status: {item.status}
-                </p>
+                <p className="subtle">{prettyTime(item.createdAt)}</p>
               </div>
             ))}
           </div>
-        )}
-      </article>
+        </article>
+      ) : null}
 
       {localCaptures.length > 0 ? (
         <article className="cardShell capturesCard">
-          <h3>Manual captures ({localCaptures.length})</h3>
+          <h3>Manual ({localCaptures.length})</h3>
           <div className="inboxCardList">
             {localCaptures.map((item) => {
               const editing = editingId === item.id;
@@ -151,11 +152,9 @@ export default function InboxSurface({
                       {editing ? "Cancel" : "Edit"}
                     </button>
                     <button type="button" className="ghostButton mini" onClick={() => onReject(item.id)}>
-                      Reject
+                      Dismiss
                     </button>
                   </div>
-
-                  <p className="subtle">Status: {item.status}</p>
                 </div>
               );
             })}

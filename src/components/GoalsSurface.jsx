@@ -31,11 +31,8 @@ function GoalCardCompact({
   const [titleDraft, setTitleDraft] = useState(goal.title || "");
   const [newTask, setNewTask] = useState("");
 
-  const activeRecurring = (goal.tasks || []).filter(
-    (task) => task.isRecurring && task.status !== "done" && !task.completedAt && !task.isNote
-  );
-  const activeOneTime = (goal.tasks || []).filter(
-    (task) => !task.isRecurring && task.status !== "done" && !task.completedAt && !task.isNote
+  const activeTasks = (goal.tasks || []).filter(
+    (task) => task.status !== "done" && !task.completedAt && !task.isNote
   );
   const progress = goalProgress(goal);
   const next = recommendedTask(goal);
@@ -67,7 +64,7 @@ function GoalCardCompact({
             </button>
           )}
           <button type="button" className="ghostButton mini" onClick={() => onArchiveGoal(goal.id)}>
-            {goal.status === "archived" ? "Unarchive" : "Archive"}
+            {goal.status === "archived" ? "Restore" : "Archive"}
           </button>
           <button type="button" className="ghostButton mini danger" onClick={() => onDeleteGoal(goal.id)}>
             Delete
@@ -78,24 +75,20 @@ function GoalCardCompact({
       <div className="goalProgressBar">
         <i style={{ width: `${progress}%` }} />
       </div>
-      <p className="subtle">Progress {progress}%</p>
+      <p className="subtle">{progress}% complete · {activeTasks.length} active task{activeTasks.length !== 1 ? "s" : ""}</p>
 
-      <p className="goalMilestoneLine">
-        Next milestone: {next ? next.title : "Define the next concrete milestone"}
-      </p>
-      <p className="subtle">Recommended next task: {next ? `${next.title} (${next.estimatedMinutes} min)` : "None"}</p>
-
-      <div className="goalCountsRow">
-        <span>Recurring active: {activeRecurring.length}</span>
-        <span>One-time active: {activeOneTime.length}</span>
-      </div>
+      {next ? (
+        <p className="goalMilestoneLine">
+          Next up: {next.title} ({next.estimatedMinutes || "?"} min)
+        </p>
+      ) : null}
 
       <div className="goalQuickAddRow">
         <input
           className="textInput"
           value={newTask}
           onChange={(event) => setNewTask(event.target.value)}
-          placeholder="Add task"
+          placeholder="Add a task..."
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
@@ -117,7 +110,7 @@ function GoalCardCompact({
       </div>
 
       <div className="goalTaskPreviewList">
-        {[...activeOneTime, ...activeRecurring].slice(0, 6).map((task) => (
+        {activeTasks.slice(0, 5).map((task) => (
           <div key={task.id} className="goalTaskPreviewRow">
             <button type="button" className="textLink" onClick={() => onOpenTask(goal.id, task.id)}>
               {task.title}
@@ -129,20 +122,19 @@ function GoalCardCompact({
               <button type="button" className="ghostButton mini" onClick={() => onSnoozeTask(task)}>
                 Snooze
               </button>
-              <select
-                className="select miniSelect"
-                value={goal.id}
-                onChange={(event) => onMoveTask(goal.id, task.id, event.target.value)}
-              >
-                {goals.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.title}
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="ghostButton mini" onClick={() => onDeleteTask(goal.id, task.id)}>
-                Delete
-              </button>
+              {goals.length > 1 ? (
+                <select
+                  className="select miniSelect"
+                  value={goal.id}
+                  onChange={(event) => onMoveTask(goal.id, task.id, event.target.value)}
+                >
+                  {goals.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.title}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
           </div>
         ))}
@@ -167,21 +159,25 @@ export default function GoalsSurface({
   onSnoozeTask,
   onMoveTask,
 }) {
+  const hasStats = yearSnapshot.totalGoals > 0;
+
   return (
     <section className="goalsSurface">
       <article className="cardShell goalsHeaderCard">
-        <div className="sectionHeader">
-          <div>
-            <h2>Goals</h2>
-            <p>Compact goals with progress, milestones, and recommended next actions.</p>
-          </div>
-        </div>
+        <h2>Goals</h2>
+        <p className="subtle">Define what you're working toward, then break each goal into tasks.</p>
         <div className="goalQuickAddRow">
           <input
             className="textInput"
             value={newGoalTitle}
             onChange={(event) => onNewGoalTitleChange(event.target.value)}
-            placeholder="Add goal"
+            placeholder="What's your next goal?"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && newGoalTitle.trim()) {
+                event.preventDefault();
+                onCreateGoal();
+              }
+            }}
           />
           <button type="button" className="primaryButton" onClick={onCreateGoal} disabled={!newGoalTitle.trim()}>
             Add goal
@@ -189,22 +185,24 @@ export default function GoalsSurface({
         </div>
       </article>
 
-      <article className="cardShell yearMiniBoard">
-        <h3>Year progress board</h3>
-        <div className="yearMiniStats">
-          <div><span>Total goals</span><strong>{yearSnapshot.totalGoals}</strong></div>
-          <div><span>Active</span><strong>{yearSnapshot.activeGoals}</strong></div>
-          <div><span>Completed</span><strong>{yearSnapshot.completedGoals}</strong></div>
-          <div><span>Execution score</span><strong>{yearSnapshot.executionScore}</strong></div>
-          <div><span>Recurring consistency</span><strong>{yearSnapshot.recurringCompletionRate}%</strong></div>
-          <div><span>Overdue load</span><strong>{yearSnapshot.overdueLoad}</strong></div>
-        </div>
-      </article>
+      {hasStats ? (
+        <article className="cardShell yearMiniBoard">
+          <div className="yearMiniStats">
+            <div><span>Active</span><strong>{yearSnapshot.activeGoals}</strong></div>
+            <div><span>Completed</span><strong>{yearSnapshot.completedGoals}</strong></div>
+            <div><span>Execution</span><strong>{yearSnapshot.executionScore}</strong></div>
+            <div><span>Overdue</span><strong>{yearSnapshot.overdueLoad}</strong></div>
+          </div>
+        </article>
+      ) : null}
 
       <div className="goalCompactGrid">
         {goals.length === 0 ? (
           <article className="cardShell">
-            <p className="subtle">No goals yet. Create your first goal.</p>
+            <div className="emptyHint">
+              <p>No goals yet.</p>
+              <p className="subtle">Type a goal name above and press Enter or click Add.</p>
+            </div>
           </article>
         ) : (
           goals.map((goal) => (

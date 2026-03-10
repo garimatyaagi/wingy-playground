@@ -2019,3 +2019,88 @@ select {
     padding: 14px 20px;
   }
 }
+
+/* Welcome card for new users */
+.welcomeCard {
+  text-align: center;
+  padding: 48px 32px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.welcomeCard h2 {
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.welcomeCard > p {
+  color: var(--muted);
+  margin-bottom: 32px;
+}
+
+.welcomeSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  text-align: left;
+  margin-bottom: 32px;
+}
+
+.welcomeStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.welcomeStepNum {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.welcomeStep strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.welcomeStep p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Loading card */
+.loadingCard {
+  text-align: center;
+  padding: 48px 24px;
+}
+
+/* Empty state hints */
+.emptyHint {
+  text-align: center;
+  padding: 20px 12px;
+}
+
+.emptyHint > p:first-child {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+/* Settings advanced toggle */
+.settingsAdvancedToggle {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+}
+
+.settingsAdvancedPanel {
+  padding-top: 16px;
+  animation: surfaceFadeIn 300ms ease;
+}

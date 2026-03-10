@@ -163,7 +163,11 @@ function isLocalGoal(goalId) {
 
 function formatSupabaseError(error, fallback) {
   if (!error) return fallback;
-  const combined = [error.message, error.details, error.hint].filter(Boolean).join(" ");
+  const msg = error.message || "";
+  if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
+    return "Could not connect. Check your internet and refresh.";
+  }
+  const combined = [msg, error.details, error.hint].filter(Boolean).join(" ");
   return combined || fallback;
 }
 
@@ -2849,7 +2853,7 @@ export default function App() {
       <SignedIn>
         <main className="execMain">
           <ExecutionHeader
-            workspaceName={workspaceName || `${userDisplayName}'s Command Center`}
+            workspaceName={workspaceName || `${userDisplayName}'s workspace`}
             nightMode={nightMode}
             onToggleNightMode={() => setNightMode((prev) => !prev)}
             userSlot={<UserButton />}
@@ -2860,7 +2864,7 @@ export default function App() {
               { id: "today", label: "Today" },
               { id: "inbox", label: "Inbox" },
               { id: "goals", label: "Goals" },
-              { id: "settings", label: "Agent Settings" },
+              { id: "settings", label: "Settings" },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -2883,8 +2887,41 @@ export default function App() {
           {dataError ? <div className="errorBanner">{dataError}</div> : null}
 
           {loading ? (
-            <section className="cardShell">
-              <p className="subtle">Loading your execution workspace...</p>
+            <section className="cardShell loadingCard">
+              <p className="subtle">Setting things up...</p>
+            </section>
+          ) : goals.length === 0 && activeSurface === "today" ? (
+            <section className="appSurfaceArea" key="welcome">
+              <article className="cardShell welcomeCard">
+                <h2>Welcome to 365 Tasks</h2>
+                <p>Your AI-powered daily execution system. Here's how to get started:</p>
+                <div className="welcomeSteps">
+                  <div className="welcomeStep">
+                    <span className="welcomeStepNum">1</span>
+                    <div>
+                      <strong>Create a goal</strong>
+                      <p>Head to Goals and add what you're working toward.</p>
+                    </div>
+                  </div>
+                  <div className="welcomeStep">
+                    <span className="welcomeStepNum">2</span>
+                    <div>
+                      <strong>Add tasks</strong>
+                      <p>Break each goal into concrete tasks with time estimates.</p>
+                    </div>
+                  </div>
+                  <div className="welcomeStep">
+                    <span className="welcomeStepNum">3</span>
+                    <div>
+                      <strong>Let AI plan your day</strong>
+                      <p>Come back to Today and see your priorities, nudges, and next actions.</p>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" className="primaryButton" onClick={() => setActiveSurface("goals")}>
+                  Create your first goal
+                </button>
+              </article>
             </section>
           ) : (
             <section className="appSurfaceArea" key={activeSurface}>

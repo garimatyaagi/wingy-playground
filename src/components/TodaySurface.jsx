@@ -22,11 +22,12 @@ export default function TodaySurface({
   onStartNow,
   onStartSprint,
 }) {
+  const hasWork = topPriorities.length > 0 || nextTask;
+
   return (
     <section className="todaySurface">
       <article className="cardShell todayHero">
         <div>
-          <p className="eyebrow">Today</p>
           <h2>{dateLabel}</h2>
         </div>
         <span className={`agentStatusPill ${String(agentStatus || "").toLowerCase().replace(/\s+/g, "-")}`}>
@@ -35,15 +36,13 @@ export default function TodaySurface({
       </article>
 
       <article className="cardShell topPriorityCard">
-        <div className="sectionHeader">
-          <div>
-            <h3>Top priorities</h3>
-            <p>Only the three tasks that matter most today.</p>
-          </div>
-        </div>
+        <h3>Top priorities</h3>
 
         {topPriorities.length === 0 ? (
-          <p className="subtle">No priorities selected yet.</p>
+          <div className="emptyHint">
+            <p>No priorities yet for today.</p>
+            <p className="subtle">Add tasks to your goals and they'll appear here ranked by urgency.</p>
+          </div>
         ) : (
           <div className="priorityListClean">
             {topPriorities.slice(0, 3).map((task, index) => (
@@ -63,11 +62,8 @@ export default function TodaySurface({
                   <button type="button" className="ghostButton mini" onClick={() => onSnooze(task)}>
                     Snooze
                   </button>
-                  <button type="button" className="ghostButton mini" onClick={() => onSplit(task)}>
-                    Split
-                  </button>
                   <button type="button" className="ghostButton mini" onClick={() => onReschedule(task)}>
-                    Reschedule
+                    Move
                   </button>
                 </div>
               </div>
@@ -77,12 +73,7 @@ export default function TodaySurface({
       </article>
 
       <article className="cardShell nextActionCardClean">
-        <div className="sectionHeader">
-          <div>
-            <h3>Next action</h3>
-            <p>Start this now to protect today's execution.</p>
-          </div>
-        </div>
+        <h3>Next action</h3>
 
         {nextTask ? (
           <>
@@ -105,31 +96,38 @@ export default function TodaySurface({
             </div>
           </>
         ) : (
-          <p className="subtle">No next action available.</p>
+          <div className="emptyHint">
+            <p>Nothing queued up yet.</p>
+            <p className="subtle">Once you have tasks with due dates, your next action will appear here.</p>
+          </div>
         )}
       </article>
 
-      <article className="cardShell dueStripCard">
-        <div className="dueStrip">
-          <div>
-            <span>Due today</span>
-            <strong>{dueTodayCount}</strong>
+      {hasWork ? (
+        <article className="cardShell dueStripCard">
+          <div className="dueStrip">
+            <div>
+              <span>Due today</span>
+              <strong>{dueTodayCount}</strong>
+            </div>
+            <div>
+              <span>Overdue</span>
+              <strong>{overdueCount}</strong>
+            </div>
+            <div>
+              <span>Blocked</span>
+              <strong>{blockedCount}</strong>
+            </div>
           </div>
-          <div>
-            <span>Overdue</span>
-            <strong>{overdueCount}</strong>
-          </div>
-          <div>
-            <span>Blocked</span>
-            <strong>{blockedCount}</strong>
-          </div>
-        </div>
-      </article>
+        </article>
+      ) : null}
 
-      <article className="cardShell latestNoteCard">
-        <h3>Latest agent note</h3>
-        <p>{latestNudge}</p>
-      </article>
+      {latestNudge ? (
+        <article className="cardShell latestNoteCard">
+          <h3>Latest note</h3>
+          <p>{latestNudge}</p>
+        </article>
+      ) : null}
     </section>
   );
 }

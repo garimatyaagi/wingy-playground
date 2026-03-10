@@ -9,13 +9,12 @@ export default function ExecutionHeader({
   return (
     <header className="execHeader">
       <div>
-        <p className="eyebrow">365 Tasks</p>
-        <h1>{workspaceName || "Execution Workspace"}</h1>
+        <h1>{workspaceName || "My workspace"}</h1>
         <p className="subtle">{formatFriendlyDate(new Date())}</p>
       </div>
       <div className="execHeaderActions">
-        <button type="button" className="ghostButton" onClick={onToggleNightMode}>
-          {nightMode ? "Day mode" : "Night mode"}
+        <button type="button" className="ghostButton mini" onClick={onToggleNightMode}>
+          {nightMode ? "Light" : "Dark"}
         </button>
         <div className="profileSlot">{userSlot}</div>
       </div>

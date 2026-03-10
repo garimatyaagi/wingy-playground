@@ -5,9 +5,18 @@ export default function AgentSettingsSurface({
   onSendMorning,
   onSendNudge,
   onSendEvening,
+  onRunScheduler,
+  onLoadDebug,
+  debugData,
+  debugLoading,
+  schedulerRunning,
   sending,
   connection,
 }) {
+  const recentCaptures = debugData?.captures || [];
+  const recentMessages = debugData?.agentMessages || [];
+  const recentEvents = debugData?.taskEvents || [];
+
   return (
     <section className="settingsSurface">
       <article className="cardShell settingsCard">
@@ -32,6 +41,24 @@ export default function AgentSettingsSurface({
               type="time"
               value={settings.morningBriefTime}
               onChange={(event) => onSettingChange("morningBriefTime", event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="inputLabel">Midday nudge time</span>
+            <input
+              className="textInput"
+              type="time"
+              value={settings.middayNudgeTime}
+              onChange={(event) => onSettingChange("middayNudgeTime", event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="inputLabel">Afternoon follow-up time</span>
+            <input
+              className="textInput"
+              type="time"
+              value={settings.afternoonFollowupTime}
+              onChange={(event) => onSettingChange("afternoonFollowupTime", event.target.value)}
             />
           </label>
           <label>
@@ -136,7 +163,52 @@ export default function AgentSettingsSurface({
           <button type="button" className="ghostButton" onClick={onSendEvening} disabled={sending}>
             Send evening check-in now
           </button>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={onRunScheduler}
+            disabled={schedulerRunning}
+          >
+            {schedulerRunning ? "Running scheduler..." : "Run scheduler now"}
+          </button>
+          <button
+            type="button"
+            className="ghostButton"
+            onClick={onLoadDebug}
+            disabled={debugLoading}
+          >
+            {debugLoading ? "Loading logs..." : "Load debug logs"}
+          </button>
         </div>
+
+        {debugData ? (
+          <div className="settingsDebugGrid">
+            <div className="settingsDebugCard">
+              <h4>Inbound captures</h4>
+              {recentCaptures.slice(0, 8).map((item) => (
+                <p key={item.id} className="subtle">
+                  {item.parsed_intent || "unknown"} · {item.raw_text}
+                </p>
+              ))}
+            </div>
+            <div className="settingsDebugCard">
+              <h4>Agent messages</h4>
+              {recentMessages.slice(0, 8).map((item) => (
+                <p key={item.id} className="subtle">
+                  {item.type} · {item.body}
+                </p>
+              ))}
+            </div>
+            <div className="settingsDebugCard">
+              <h4>Task events</h4>
+              {recentEvents.slice(0, 8).map((item) => (
+                <p key={item.id} className="subtle">
+                  {item.event_type} · {item.task_id}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </article>
     </section>
   );

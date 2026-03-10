@@ -2,5 +2,11 @@
   "routes": [
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/agent/scheduler",
+      "schedule": "*/5 * * * *"
+    }
   ]
 }

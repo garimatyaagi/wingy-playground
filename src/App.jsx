@@ -139,6 +139,8 @@ function loadAgentSettings() {
   const tone = loadAgentTone();
   return {
     morningBriefTime: parsed?.morningBriefTime || "08:00",
+    middayNudgeTime: parsed?.middayNudgeTime || "12:30",
+    afternoonFollowupTime: parsed?.afternoonFollowupTime || "16:00",
     eveningCheckinTime: parsed?.eveningCheckinTime || "20:30",
     workdayStart: parsed?.workdayStart || "09:00",
     workdayEnd: parsed?.workdayEnd || "18:00",
@@ -393,6 +395,9 @@ export default function App() {
   const [inboxEditingId, setInboxEditingId] = useState(null);
   const [inboxEditDraft, setInboxEditDraft] = useState({ title: "", goalName: "" });
   const [agentSettings, setAgentSettings] = useState(loadAgentSettings);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData, setDebugData] = useState(null);
+  const [schedulerRunning, setSchedulerRunning] = useState(false);
 
   const [intakeRawText, setIntakeRawText] = useState("");
   const [intakePreview, setIntakePreview] = useState([]);
@@ -610,6 +615,11 @@ export default function App() {
       cancelled = true;
     };
   }, [user?.id, supabase]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void loadAgentSettingsFromServer();
+  }, [user?.id]);
 
   const allTasks = useMemo(
     () =>
@@ -2352,9 +2362,89 @@ export default function App() {
     setAgentSettings((prev) => ({ ...prev, [field]: value }));
   }
 
-  function saveAgentSettings() {
+  async function saveAgentSettings() {
     setAgentTone(agentSettings.tone || "firm");
+    if (!user?.id) {
+      showToast("Agent settings saved locally.");
+      return;
+    }
+    const payload = {
+      userId: user.id,
+      ...agentSettings,
+    };
+    const response = await callAgentEndpoint("/api/agent/settings", payload);
+    if (!response?.ok && !response?.profile) {
+      showToast("Saved locally, but server sync failed.", "error");
+      return;
+    }
+    if (response?.profile) {
+      setAgentSettings((prev) => ({
+        ...prev,
+        ...response.profile,
+        whatsAppTo: response.profile.whatsAppNumber || prev.whatsAppTo,
+      }));
+    }
     showToast("Agent settings saved.");
+  }
+
+  async function loadAgentSettingsFromServer() {
+    if (!user?.id) return;
+    try {
+      const response = await fetch(`/api/agent/settings?userId=${encodeURIComponent(user.id)}`);
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.profile) return;
+      setAgentSettings((prev) => ({
+        ...prev,
+        ...data.profile,
+        whatsAppTo: data.profile.whatsAppNumber || prev.whatsAppTo,
+      }));
+      if (data.profile?.tone) setAgentTone(data.profile.tone);
+    } catch (error) {
+      console.error("loadAgentSettingsFromServer failed", { error });
+    }
+  }
+
+  async function runSchedulerNow() {
+    setSchedulerRunning(true);
+    try {
+      const response = await fetch("/api/agent/scheduler", {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast("Scheduler trigger failed.", "error");
+        return;
+      }
+      const sentCount = Array.isArray(data?.report)
+        ? data.report.reduce((sum, item) => sum + (item.actions?.length || 0), 0)
+        : 0;
+      showToast(`Scheduler ran. ${sentCount} agent message(s) attempted.`);
+    } catch (error) {
+      console.error("runSchedulerNow failed", { error });
+      showToast("Scheduler trigger failed.", "error");
+    } finally {
+      setSchedulerRunning(false);
+    }
+  }
+
+  async function loadAgentDebug() {
+    if (!user?.id) return;
+    setDebugLoading(true);
+    try {
+      const response = await fetch(`/api/agent/debug?userId=${encodeURIComponent(user.id)}`);
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) {
+        showToast("Could not load agent debug logs.", "error");
+        return;
+      }
+      setDebugData(data);
+      showToast("Agent debug logs loaded.");
+    } catch (error) {
+      console.error("loadAgentDebug failed", { error });
+      showToast("Could not load agent debug logs.", "error");
+    } finally {
+      setDebugLoading(false);
+    }
   }
 
   function commitTopPriorities() {
@@ -2789,6 +2879,11 @@ export default function App() {
                   onSendMorning={() => void sendMorningBriefToWhatsApp()}
                   onSendNudge={() => void sendLatestNudgeToWhatsApp()}
                   onSendEvening={() => void sendEveningCheckinToWhatsApp()}
+                  onRunScheduler={runSchedulerNow}
+                  onLoadDebug={loadAgentDebug}
+                  debugData={debugData}
+                  debugLoading={debugLoading}
+                  schedulerRunning={schedulerRunning}
                   sending={morningSending}
                   connection={agentConnection}
                 />

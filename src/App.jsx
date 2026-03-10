@@ -945,6 +945,20 @@ export default function App() {
     setToast({ kind, message });
   }
 
+  // Handle Google Calendar OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gcal = params.get("gcal");
+    if (gcal === "connected") {
+      showToast("Google Calendar connected successfully!");
+      updateAgentSetting("googleCalendarConnected", true);
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (gcal === "error") {
+      showToast("Google Calendar connection failed: " + (params.get("reason") || "unknown"), "error");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   function toneLine(gentle, firm, ruthless) {
     if (agentTone === "gentle") return gentle;
     if (agentTone === "ruthless") return ruthless;
@@ -2099,7 +2113,7 @@ export default function App() {
       ...payload,
       schedule: todaysSuggestedSchedule,
     });
-    const remote = await callAgentEndpoint("/api/agent/morning-brief", payload);
+    const remote = await callAgentEndpoint("/api/agent/dispatch", { action: "morning_brief", ...payload });
     const message = remote?.message || localMessage;
     setMorningBrief(message);
     setDailyPlanLog((prev) =>
@@ -2173,7 +2187,7 @@ export default function App() {
     const template = createEveningCheckinTemplate(source);
     setEveningItems(template);
     const fallback = buildEveningFollowupMessage(template);
-    const remote = await callAgentEndpoint("/api/agent/evening-followup", { items: template });
+    const remote = await callAgentEndpoint("/api/agent/dispatch", { action: "evening_followup", items: template });
     const followupText = remote?.message || fallback;
     setEveningSummary(followupText);
     showToast("Evening check-in prepared.");
@@ -2227,7 +2241,7 @@ export default function App() {
       const template = createEveningCheckinTemplate(source);
       setEveningItems(template);
       const fallback = buildEveningFollowupMessage(template);
-      const remote = await callAgentEndpoint("/api/agent/evening-followup", { items: template });
+      const remote = await callAgentEndpoint("/api/agent/dispatch", { action: "evening_followup", items: template });
       text = remote?.message || fallback;
       setEveningSummary(text);
     }
@@ -2349,7 +2363,8 @@ export default function App() {
         updateCommitmentOutcome(task.id, "missed", 1);
       }
 
-      const replanFromApi = await callAgentEndpoint("/api/agent/replan", {
+      const replanFromApi = await callAgentEndpoint("/api/agent/dispatch", {
+        action: "replan",
         skippedItems,
         partialItems,
       });
@@ -2942,6 +2957,7 @@ export default function App() {
               {activeSurface === "settings" ? (
                 <AgentSettingsSurface
                   settings={agentSettings}
+                  userId={user?.id || ""}
                   onSettingChange={updateAgentSetting}
                   onSave={saveAgentSettings}
                   onSendMorning={() => void sendMorningBriefToWhatsApp()}

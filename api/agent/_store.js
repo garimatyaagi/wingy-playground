@@ -853,3 +853,35 @@ export async function fetchAgentDebug(userId, limit = 30) {
     openTasks,
   };
 }
+
+export async function fetchOverdueTasks(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("task_steps")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("done", false)
+    .not("due_date", "is", null)
+    .lt("due_date", now)
+    .order("due_date", { ascending: true })
+    .limit(20);
+  if (error) {
+    console.error("fetchOverdueTasks error:", error);
+    return [];
+  }
+  return data || [];
+}
+
+export async function fetchTaskPostponeCount(taskId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !taskId) return 0;
+  const { count, error } = await supabase
+    .from("task_events")
+    .select("id", { count: "exact", head: true })
+    .eq("task_id", taskId)
+    .eq("event_type", "rescheduled");
+  if (error) return 0;
+  return count || 0;
+}

@@ -14,6 +14,7 @@ import {
 } from "./_store.js";
 import {
   parseMessageIntent,
+  parseMessageIntentWithLLM,
   recomputeDailyPlan,
   resolveTaskMatch,
 } from "./_engine.js";
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
       processingResult: "received",
     });
 
-    const intent = parseMessageIntent(rawText, new Date());
+    const intent = await parseMessageIntentWithLLM(rawText, userId, new Date());
     const openTasks = await listOpenTasks(userId);
     const planState = await recomputeDailyPlan({
       userId,

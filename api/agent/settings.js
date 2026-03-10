@@ -2,9 +2,20 @@ import {
   getAgentProfileByUserId,
   upsertAgentProfile,
 } from "./_store.js";
+import { getAuthUrl } from "./_calendar.js";
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
+    // Handle Google Calendar auth redirect
+    if (req.query?.gcal_auth === "1") {
+      const userId = String(req.query?.userId || "").trim();
+      const authUrl = getAuthUrl(userId);
+      if (!authUrl) {
+        return res.status(500).json({ error: "Google Calendar not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI." });
+      }
+      return res.redirect(authUrl);
+    }
+
     const userId = String(req.query?.userId || "").trim();
     if (!userId) return res.status(400).json({ error: "Missing userId" });
     const profile = await getAgentProfileByUserId(userId);

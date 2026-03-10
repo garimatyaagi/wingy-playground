@@ -3,7 +3,9 @@ import {
   listOpenTasks,
   logTaskEvent,
   saveDailyPlan,
+  fetchRecentContext,
 } from "./_store.js";
+import { llmParseMessage } from "./_llm.js";
 
 const ACTION_VERBS = [
   "finish",
@@ -484,6 +486,75 @@ export function parseMessageIntent(rawText, now = new Date()) {
     confidence: tasks.length > 1 ? 0.74 : 0.8,
     tasks,
   };
+}
+
+// ─── LLM-powered parse with regex fallback ───
+
+export async function parseMessageIntentWithLLM(rawText, userId, now = new Date()) {
+  try {
+    const [contextMessages, openTasks] = await Promise.all([
+      fetchRecentContext(userId, 5),
+      listOpenTasks(userId),
+    ]);
+
+    const llmResult = await llmParseMessage(rawText, contextMessages, openTasks);
+    if (llmResult && llmResult.intent) {
+      // Convert LLM structured output to the same shape as regex parseMessageIntent
+      const result = {
+        intent: llmResult.intent,
+        confidence: llmResult.confidence || 0.85,
+        tasks: [],
+      };
+
+      if (llmResult.intent === "create_task" || llmResult.intent === "create_recurring_task") {
+        result.tasks = [
+          {
+            title: llmResult.taskTitle || rawText,
+            normalizedTitle: (llmResult.taskTitle || rawText).toLowerCase(),
+            rawSourceText: rawText,
+            dueDate: llmResult.dueDate || null,
+            isRecurring: llmResult.isRecurring || false,
+            recurrenceRule: llmResult.recurrenceRule ? JSON.parse(llmResult.recurrenceRule) : null,
+            estimatedMinutes: llmResult.estimatedMinutes || 30,
+            urgency: llmResult.urgency || 3,
+            importance: llmResult.importance || 3,
+            effortType: llmResult.effortType || "deep_work",
+            source: "whatsapp",
+            aiConfidence: llmResult.confidence || 0.85,
+            goalName: llmResult.goalName || "General",
+            status: "open",
+          },
+        ];
+      }
+
+      if (llmResult.intent === "complete_task") {
+        result.completionTarget = llmResult.completionTarget || rawText;
+      }
+      if (llmResult.intent === "reschedule_task") {
+        result.completionTarget = llmResult.completionTarget || rawText;
+        result.rescheduleDays = llmResult.rescheduleDays || 1;
+      }
+      if (llmResult.intent === "archive_task") {
+        result.completionTarget = llmResult.completionTarget || rawText;
+      }
+      if (llmResult.intent === "goal") {
+        result.goalTitle = llmResult.goalTitle || rawText;
+      }
+      if (llmResult.intent === "note") {
+        result.noteText = llmResult.noteText || rawText;
+      }
+      if (llmResult.intent === "ambiguous") {
+        result.clarificationQuestion = llmResult.followUpQuestion || "Could you be more specific?";
+      }
+
+      return result;
+    }
+  } catch (err) {
+    console.error("parseMessageIntentWithLLM error, falling back to regex:", err.message);
+  }
+
+  // Fallback to regex-based parser
+  return parseMessageIntent(rawText, now);
 }
 
 function compareScores(a, b) {

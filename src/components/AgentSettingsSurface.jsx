@@ -1,5 +1,6 @@
 export default function AgentSettingsSurface({
   settings,
+  userId,
   onSettingChange,
   onSave,
   onSendMorning,
@@ -148,6 +149,40 @@ export default function AgentSettingsSurface({
             />
             Autoplan enabled
           </label>
+        </div>
+
+        <div className="cardShell calendarCard" style={{ marginTop: "1rem", padding: "1rem" }}>
+          <h3>Google Calendar</h3>
+          {settings.googleCalendarConnected ? (
+            <div>
+              <p className="subtle" style={{ color: "#25d366" }}>Connected</p>
+              <p className="subtle">Calendar events will appear in your morning brief and nudges.</p>
+              <button
+                type="button"
+                className="ghostButton mini"
+                onClick={() => {
+                  onSettingChange("googleRefreshToken", "");
+                  onSettingChange("googleCalendarConnected", false);
+                }}
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="subtle">Connect Google Calendar to include events in your daily messages.</p>
+              <button
+                type="button"
+                className="primaryButton mini"
+                onClick={() => {
+                  const url = `/api/agent/settings?gcal_auth=1&userId=${encodeURIComponent(userId)}`;
+                  window.open(url, "_blank");
+                }}
+              >
+                Connect Google Calendar
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="settingsActions">

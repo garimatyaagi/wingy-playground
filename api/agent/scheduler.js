@@ -2,6 +2,7 @@ import {
   listActiveProfiles,
   listAgentMessagesForDate,
   logAgentMessage,
+  fetchOverdueTasks,
 } from "./_store.js";
 import {
   buildEveningCheckin,
@@ -10,6 +11,8 @@ import {
   recomputeDailyPlan,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
+import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp } from "./_llm.js";
+import { getTodayEvents } from "./_calendar.js";
 
 function parseTimeToMinutes(value, fallback) {
   const source = String(value || fallback || "00:00");
@@ -88,6 +91,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Allow Vercel cron (no auth needed) or external cron with CRON_SECRET
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const authHeader = req.headers.authorization || "";
+    const isVercelCron = req.headers["x-vercel-cron"] === "1";
+    if (!isVercelCron && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+  }
+
   const now = new Date();
   const profiles = await listActiveProfiles();
   const report = [];
@@ -109,7 +122,11 @@ export default async function handler(req, res) {
         userId: profile.userId,
         date: now,
       });
-      const body = buildMorningBrief({
+      const calendarEvents = profile.google_refresh_token
+        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch(() => [])
+        : [];
+      const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
+      const body = llmBody || buildMorningBrief({
         planState,
         tone: profile.tone || "firm",
       });
@@ -129,6 +146,8 @@ export default async function handler(req, res) {
     }
 
     if (shouldSend(profile, "midday_nudge", local, sentTypes)) {
+      const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
+      const llmBody = await llmNudge(planState, "midday_nudge", profile).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -138,7 +157,7 @@ export default async function handler(req, res) {
         userId: profile.userId,
         to: profile.whatsAppNumber,
         type: "midday_nudge",
-        body: nudge.body,
+        body: llmBody || nudge.body,
         relatedTaskIds: nudge.relatedTaskIds || [],
         metadata: { reason: nudge.reason || "scheduled_midday_nudge" },
       });
@@ -147,12 +166,14 @@ export default async function handler(req, res) {
     }
 
     if (shouldSend(profile, "afternoon_followup", local, sentTypes)) {
+      const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
+      const llmBody = await llmNudge(planState, "afternoon_followup", profile).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
         now,
       });
-      const body = `${nudge.body}\nOne completion push before end of day.`;
+      const body = llmBody || `${nudge.body}\nOne completion push before end of day.`;
       const sent = await sendAndLog({
         userId: profile.userId,
         to: profile.whatsAppNumber,
@@ -170,7 +191,11 @@ export default async function handler(req, res) {
         userId: profile.userId,
         date: now,
       });
-      const body = buildEveningCheckin({ planState });
+      const completedToday = (planState.scoredTasks || []).filter(
+        (t) => t.done && t.completedAt && t.completedAt.startsWith(local.dateKey)
+      );
+      const llmBody = await llmEveningCheckin(planState, completedToday, profile).catch(() => null);
+      const body = llmBody || buildEveningCheckin({ planState });
       const sent = await sendAndLog({
         userId: profile.userId,
         to: profile.whatsAppNumber,
@@ -184,6 +209,40 @@ export default async function handler(req, res) {
       });
       profileReport.actions.push({ type: "evening_checkin", sent });
       sentTypes.add("evening_checkin");
+    }
+
+    // ─── Persistent follow-ups for avoided tasks ───
+    // Only send between midday and evening, max 1 follow-up per run
+    if (
+      profile.whatsAppNumber &&
+      local.minuteOfDay >= parseTimeToMinutes(profile.middayNudgeTime, "12:30") &&
+      local.minuteOfDay <= parseTimeToMinutes(profile.eveningCheckinTime, "20:30") &&
+      !sentTypes.has("followup")
+    ) {
+      const overdueTasks = await fetchOverdueTasks(profile.userId);
+      const avoidedTask = overdueTasks.find(
+        (t) => Number(t.reschedule_count || t.rescheduleCount || 0) >= 2
+      );
+
+      if (avoidedTask) {
+        // Check we haven't already sent a follow-up for this task today
+        const alreadySent = (sentToday || []).some(
+          (m) => m.type === "followup" && m.related_task_ids?.includes(avoidedTask.id)
+        );
+        if (!alreadySent) {
+          const llmBody = await llmFollowUp(avoidedTask, [], profile).catch(() => null);
+          const fallbackBody = `You've postponed "${avoidedTask.title}" ${Number(avoidedTask.reschedule_count || 0)} times. Can you do just 10 minutes on it right now? Reply 'done' or 'archive' if it's no longer needed.`;
+          const sent = await sendAndLog({
+            userId: profile.userId,
+            to: profile.whatsAppNumber,
+            type: "followup",
+            body: llmBody || fallbackBody,
+            relatedTaskIds: [avoidedTask.id],
+            metadata: { reason: "avoidance_followup", postponeCount: avoidedTask.reschedule_count },
+          });
+          profileReport.actions.push({ type: "followup", sent, taskId: avoidedTask.id });
+        }
+      }
     }
 
     report.push(profileReport);

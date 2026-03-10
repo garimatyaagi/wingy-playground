@@ -93,13 +93,19 @@ export default async function handler(req, res) {
   }
 
   // Vercel cron sends Authorization: Bearer <CRON_SECRET> automatically
-  const cronSecret = process.env.CRON_SECRET;
+  const cronSecret = (process.env.CRON_SECRET || "").trim();
   if (cronSecret) {
     const authHeader = String(req.headers.authorization || "").trim();
-    const isVercelCron = req.headers["x-vercel-cron"] === "1";
-    const bearerMatch = authHeader === `Bearer ${cronSecret}`;
-    if (!isVercelCron && !bearerMatch) {
-      console.error("scheduler_auth_failed", { hasAuth: !!authHeader, isVercelCron, cronSecretLen: cronSecret.length });
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const bearerMatch = bearerToken === cronSecret;
+    if (!bearerMatch) {
+      console.error("scheduler_auth_failed", JSON.stringify({
+        hasAuth: !!authHeader,
+        authPrefix: authHeader.slice(0, 10),
+        bearerLen: bearerToken.length,
+        secretLen: cronSecret.length,
+        match: bearerMatch,
+      }));
       return res.status(401).json({ error: "Unauthorized" });
     }
   }

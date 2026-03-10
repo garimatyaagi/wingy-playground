@@ -4,6 +4,7 @@ import {
   logTaskEvent,
   saveDailyPlan,
   fetchRecentContext,
+  updateTaskStep,
 } from "./_store.js";
 import { llmParseMessage } from "./_llm.js";
 
@@ -105,6 +106,12 @@ const STOPWORDS = new Set([
 
 function cleanText(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function safeParseRecurrence(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch { return null; }
 }
 
 function isoDate(value = new Date()) {
@@ -493,7 +500,7 @@ export function parseMessageIntent(rawText, now = new Date()) {
 export async function parseMessageIntentWithLLM(rawText, userId, now = new Date()) {
   try {
     const [contextMessages, openTasks] = await Promise.all([
-      fetchRecentContext(userId, 5),
+      fetchRecentContext(userId, 15),
       listOpenTasks(userId),
     ]);
 
@@ -503,28 +510,34 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
       const result = {
         intent: llmResult.intent,
         confidence: llmResult.confidence || 0.85,
+        parseMethod: "llm",
         tasks: [],
       };
 
       if (llmResult.intent === "create_task" || llmResult.intent === "create_recurring_task") {
-        result.tasks = [
-          {
-            title: llmResult.taskTitle || rawText,
-            normalizedTitle: (llmResult.taskTitle || rawText).toLowerCase(),
+        // Support compound tasks: LLM may return a `tasks` array or a single `taskTitle`
+        const llmTasks = Array.isArray(llmResult.tasks) && llmResult.tasks.length > 0
+          ? llmResult.tasks
+          : [llmResult]; // wrap single-task schema for backward compat
+        result.tasks = llmTasks.map((t) => {
+          const title = t.title || t.taskTitle || rawText;
+          return {
+            title,
+            normalizedTitle: title.toLowerCase().trim(),
             rawSourceText: rawText,
-            dueDate: llmResult.dueDate || null,
-            isRecurring: llmResult.isRecurring || false,
-            recurrenceRule: llmResult.recurrenceRule ? JSON.parse(llmResult.recurrenceRule) : null,
-            estimatedMinutes: llmResult.estimatedMinutes || 30,
-            urgency: llmResult.urgency || 3,
-            importance: llmResult.importance || 3,
-            effortType: llmResult.effortType || "deep_work",
+            dueDate: t.dueDate || llmResult.dueDate || null,
+            isRecurring: t.isRecurring || llmResult.isRecurring || false,
+            recurrenceRule: (t.recurrenceRule || llmResult.recurrenceRule) ? safeParseRecurrence(t.recurrenceRule || llmResult.recurrenceRule) : null,
+            estimatedMinutes: t.estimatedMinutes || llmResult.estimatedMinutes || 30,
+            urgency: t.urgency || llmResult.urgency || 3,
+            importance: t.importance || llmResult.importance || 3,
+            effortType: t.effortType || llmResult.effortType || "deep_work",
             source: "whatsapp",
             aiConfidence: llmResult.confidence || 0.85,
-            goalName: llmResult.goalName || "General",
+            goalName: t.goalName || llmResult.goalName || "General",
             status: "open",
-          },
-        ];
+          };
+        });
       }
 
       if (llmResult.intent === "complete_task") {
@@ -534,8 +547,11 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
         result.completionTarget = llmResult.completionTarget || rawText;
         result.rescheduleDays = llmResult.rescheduleDays || 1;
       }
-      if (llmResult.intent === "archive_task") {
+      if (llmResult.intent === "archive_task" || llmResult.intent === "cancel_task") {
         result.completionTarget = llmResult.completionTarget || rawText;
+      }
+      if (llmResult.intent === "informational_update") {
+        result.noteText = llmResult.noteText || rawText;
       }
       if (llmResult.intent === "goal") {
         result.goalTitle = llmResult.goalTitle || rawText;
@@ -554,7 +570,131 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
   }
 
   // Fallback to regex-based parser
-  return parseMessageIntent(rawText, now);
+  const regexResult = parseMessageIntent(rawText, now);
+  regexResult.parseMethod = "regex_fallback";
+  return regexResult;
+}
+
+// ─── Context Bundle Builder (Phase 2A) ───
+
+export async function buildMessageContext(userId, now = new Date()) {
+  const dateKey = isoDate(now);
+  const [openTasks, recentContext, existingPlan] = await Promise.all([
+    listOpenTasks(userId),
+    fetchRecentContext(userId, 15),
+    getDailyPlan(userId, dateKey),
+  ]);
+
+  const activeTasks = openTasks.filter((t) => !t.done && t.status !== "completed" && t.status !== "archived");
+  const overdueTasks = activeTasks.filter((t) => t.dueDate && asDate(t.dueDate)?.getTime() < now.getTime() && isoDate(t.dueDate) !== dateKey);
+  const dueTodayTasks = activeTasks.filter((t) => t.dueDate && isoDate(t.dueDate) === dateKey);
+  const recurringDueToday = activeTasks.filter((t) => t.isRecurring && recurrenceOccursOnDate(t, now));
+
+  // Find last nudged task from recent agent_messages
+  const recentMessages = recentContext?.recentMessages || recentContext || [];
+  let lastNudgedTaskId = null;
+  for (const msg of (Array.isArray(recentMessages) ? recentMessages : [])) {
+    const ids = msg.related_task_ids || msg.relatedTaskIds || [];
+    if ((msg.type === "nudge" || msg.type === "follow_up") && ids.length > 0) {
+      lastNudgedTaskId = ids[0];
+      break;
+    }
+  }
+
+  // Recent completions (last 24h)
+  const oneDayAgo = new Date(now.getTime() - 86400000).toISOString();
+  const recentCompletions = openTasks.filter((t) => t.done && t.completedAt && t.completedAt > oneDayAgo);
+
+  // Build preferred task IDs
+  const preferredTaskIds = [];
+  const pushUnique = (id) => { if (id && !preferredTaskIds.includes(id)) preferredTaskIds.push(id); };
+  if (lastNudgedTaskId) pushUnique(lastNudgedTaskId);
+  if (existingPlan?.next_best_task_id) pushUnique(existingPlan.next_best_task_id);
+  (existingPlan?.top_priority_task_ids || []).forEach(pushUnique);
+  for (const msg of (Array.isArray(recentMessages) ? recentMessages : [])) {
+    (msg.related_task_ids || msg.relatedTaskIds || []).forEach(pushUnique);
+  }
+
+  return {
+    openTasks: activeTasks,
+    allOpenTasks: openTasks,
+    overdueTasks,
+    dueTodayTasks,
+    recurringDueToday,
+    lastNudgedTaskId,
+    recentCompletions,
+    recentContext,
+    recentMessages,
+    existingPlan,
+    preferredTaskIds,
+    dateKey,
+  };
+}
+
+// ─── Avoidance Score (Phase 2E) ───
+
+export function computeAvoidanceScore(task) {
+  let score = 0;
+  const rescheduleCount = Number(task.rescheduleCount || 0);
+  score += Math.min(6, rescheduleCount * 1.5);
+
+  const createdAt = asDate(task.createdAt);
+  if (createdAt) {
+    const ageDays = Math.floor((Date.now() - createdAt.getTime()) / 86400000);
+    if (ageDays > 14) score += 1.5;
+    else if (ageDays > 7) score += 0.8;
+    else if (ageDays > 3) score += 0.4;
+  }
+
+  if (task.effortType === "deep_work" && Number(task.importance || 0) >= 4) {
+    score += 1.0;
+  }
+
+  return Math.min(10, score);
+}
+
+// ─── Behavior Pattern Detection (Phase 3A) ───
+
+export function detectBehaviorPatterns(planState, recentContext, dateKey) {
+  const patterns = [];
+  const top = planState?.topPriorities || [];
+  const scored = planState?.scoredTasks || [];
+
+  const completedToday = scored.filter(
+    (t) => t.done && t.completedAt && isoDate(t.completedAt) === dateKey
+  );
+
+  // Repeated postponement
+  for (const task of top) {
+    if (Number(task.rescheduleCount || 0) >= 3) {
+      patterns.push({ type: "repeated_postponement", taskId: task.id, taskTitle: task.title, rescheduleCount: task.rescheduleCount });
+    }
+  }
+
+  // Admin drift: completed low-importance while high-importance undone
+  const highUndone = top.filter((t) => !t.done && Number(t.importance || 0) >= 4);
+  const completedLowOnly = completedToday.length > 0 && completedToday.every((t) => Number(t.importance || 0) <= 3);
+  if (completedLowOnly && highUndone.length > 0) {
+    patterns.push({ type: "admin_drift", completedLowCount: completedToday.length, highUndoneCount: highUndone.length });
+  }
+
+  // Deep work avoidance: deep_work tasks rescheduled while admin completed
+  const deepWorkRescheduled = scored.filter((t) => t.effortType === "deep_work" && Number(t.rescheduleCount || 0) >= 2 && !t.done);
+  const adminCompleted = completedToday.filter((t) => t.effortType === "admin");
+  if (deepWorkRescheduled.length > 0 && adminCompleted.length > 0) {
+    patterns.push({ type: "deep_work_avoidance", avoidedCount: deepWorkRescheduled.length, adminDoneCount: adminCompleted.length });
+  }
+
+  // Ignored nudges: recent nudge messages with no completion response within recent context
+  const recentMessages = Array.isArray(recentContext) ? recentContext : (recentContext?.recentMessages || []);
+  const nudges = recentMessages.filter((m) => m.type === "nudge" || m.type === "follow_up");
+  const completions = recentMessages.filter((m) => m.type === "ack" && (m.metadata?.result === "task_completed" || String(m.body || "").includes("done")));
+  if (nudges.length >= 2 && completions.length === 0) {
+    patterns.push({ type: "ignored_nudges", nudgeCount: nudges.length });
+  }
+
+  const severity = patterns.length === 0 ? "none" : patterns.length >= 3 ? "high" : patterns.length >= 2 ? "medium" : "low";
+  return { patterns, primaryPattern: patterns[0]?.type || null, severity };
 }
 
 function compareScores(a, b) {
@@ -565,6 +705,7 @@ export function resolveTaskMatch({
   targetText,
   openTasks,
   preferredTaskIds = [],
+  lastNudgedTaskId = null,
 }) {
   const tasks = (openTasks || []).filter((task) => !task.done && task.status !== "completed");
   if (tasks.length === 0) {
@@ -572,7 +713,13 @@ export function resolveTaskMatch({
   }
 
   const normalizedTarget = cleanText(targetText).toLowerCase();
-  if (!normalizedTarget || /^(it|this|that)?\s*$/.test(normalizedTarget)) {
+
+  // Bare "done" / pronoun → ordered resolution: nudged → preferred → first open
+  if (!normalizedTarget || /^(it|this|that|done|finished|completed)?\s*$/.test(normalizedTarget)) {
+    if (lastNudgedTaskId) {
+      const nudged = tasks.find((task) => task.id === lastNudgedTaskId);
+      if (nudged) return { status: "matched", task: nudged, score: 0.85, strategy: "nudged_task" };
+    }
     for (const taskId of preferredTaskIds) {
       const found = tasks.find((task) => task.id === taskId);
       if (found) return { status: "matched", task: found, score: 0.7, strategy: "context" };
@@ -584,9 +731,26 @@ export function resolveTaskMatch({
     .map((task) => {
       const title = String(task.title || "").toLowerCase();
       let score = tokenOverlapScore(normalizedTarget, title);
-      if (title.includes(normalizedTarget)) score += 0.5;
+
+      // Exact / substring match bonuses
+      if (title === normalizedTarget) score += 0.8;
+      else if (title.includes(normalizedTarget)) score += 0.5;
       if (normalizedTarget.includes(title)) score += 0.25;
+
+      // Preferred task bonus
       if (preferredTaskIds.includes(task.id)) score += 0.25;
+
+      // Nudged task gets strong bonus
+      if (task.id === lastNudgedTaskId) score += 0.3;
+
+      // Recency weighting
+      const createdAt = asDate(task.createdAt);
+      if (createdAt) {
+        const ageHours = (Date.now() - createdAt.getTime()) / 3600000;
+        if (ageHours < 24) score += 0.15;
+        else if (ageHours < 168) score += 0.08;
+      }
+
       return { task, score };
     })
     .sort(compareScores);
@@ -602,7 +766,7 @@ export function resolveTaskMatch({
       options: scored.slice(0, 3).map((entry) => entry.task),
     };
   }
-  return { status: "matched", task: top.task, score: top.score, strategy: "fuzzy" };
+  return { status: "matched", task: top.task, score: top.score, strategy: top.task.id === lastNudgedTaskId ? "nudged_fuzzy" : "fuzzy" };
 }
 
 function recurrenceOccursOnDate(task, dateInput) {
@@ -682,6 +846,7 @@ export async function recomputeDailyPlan({
       const isOverdue = Boolean(task.dueDate && asDate(task.dueDate)?.getTime() < targetDate.getTime());
       const isDueToday = Boolean(task.dueDate && isoDate(task.dueDate) === dateKey);
       const recurringDueToday = task.isRecurring && recurrenceOccursOnDate(task, targetDate);
+      const avoidance = computeAvoidanceScore(task);
       const score =
         taskDuePressure(task, targetDate) +
         Number(task.importance || 3) * 10 +
@@ -691,11 +856,13 @@ export async function recomputeDailyPlan({
         (recurringDueToday ? 20 : 0) +
         unlockValue(task, tasks) +
         Math.min(18, Number(task.rescheduleCount || 0) * 3) +
+        Math.min(12, avoidance * 2) +
         (task.isBlocked ? -28 : 0) +
         estimateEffortFit(task, dailyCapacityMinutes);
       return {
         ...task,
         priorityScore: Math.round(score),
+        avoidanceScore: Math.round(avoidance * 10) / 10,
         recurringDueToday,
         isDueToday,
         isOverdue,
@@ -703,17 +870,49 @@ export async function recomputeDailyPlan({
     })
     .sort((a, b) => Number(b.priorityScore || 0) - Number(a.priorityScore || 0));
 
+  // Smart replanning (Phase 3B):
+  // 1. Scope reduction: avoided tasks with high estimates get halved
+  for (const task of scored) {
+    if (task.avoidanceScore >= 5 && Number(task.estimatedMinutes || 0) > 30) {
+      task.estimatedMinutes = Math.max(15, Math.round(Number(task.estimatedMinutes) / 2));
+    }
+  }
+
+  // 2. Always include recurring-due-today in top priorities
+  const recurringMustDo = scored.filter((t) => t.recurringDueToday);
+
   const topPriorities = [];
   let usedMinutes = 0;
+
+  // First: add recurring-due-today
+  for (const task of recurringMustDo) {
+    if (topPriorities.length >= 5) break;
+    topPriorities.push(task);
+    usedMinutes += Math.max(10, Number(task.estimatedMinutes || 30));
+  }
+
+  // Then: fill remaining slots from scored
   for (const task of scored) {
-    if (topPriorities.length >= 3) break;
+    if (topPriorities.length >= 3 + recurringMustDo.length) break;
+    if (topPriorities.some((t) => t.id === task.id)) continue;
     const estimate = Math.max(10, Number(task.estimatedMinutes || 30));
+    // 3. Overload protection: if must-do > 1.5x capacity, defer low-importance non-overdue
+    if (topPriorities.length > 0 && usedMinutes + estimate > dailyCapacityMinutes * 1.5) {
+      if (!task.isOverdue && Number(task.importance || 0) < 4) continue;
+    }
     if (topPriorities.length > 0 && usedMinutes + estimate > dailyCapacityMinutes + 20) continue;
     topPriorities.push(task);
     usedMinutes += estimate;
   }
   if (topPriorities.length === 0) {
     topPriorities.push(...scored.slice(0, 3));
+  }
+
+  // Write avoidance scores to top priority tasks
+  for (const task of topPriorities) {
+    if (task.avoidanceScore > 0) {
+      updateTaskStep(task.id, task.goalId || task.task_id, { ...task, avoidanceScore: task.avoidanceScore }).catch(() => {});
+    }
   }
 
   const topIds = topPriorities.map((task) => task.id);

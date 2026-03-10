@@ -212,7 +212,8 @@ export async function resolveInboundUser(fromValue) {
   }
   const fallback = process.env.AGENT_DEFAULT_USER_ID || "";
   if (fallback) {
-    return { userId: fallback, profile: null, fromNumber: normalized };
+    console.warn("resolveInboundUser fallback to default user", { fromNumber: normalized, fallbackUserId: fallback });
+    return { userId: fallback, profile: null, fromNumber: normalized, fallback: true };
   }
   return null;
 }
@@ -352,6 +353,25 @@ export async function listOpenTasks(userId) {
 export async function createTaskStep(userId, taskPayload) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !userId) return null;
+
+  // Idempotency: check for same normalized title by same user within 60s
+  const normalizedTitle = (taskPayload.normalizedTitle || taskPayload.title || "").toLowerCase().trim();
+  if (normalizedTitle) {
+    const cutoff = new Date(Date.now() - 60_000).toISOString();
+    const { data: existing } = await supabase
+      .from("task_steps")
+      .select("id, task_id, text, due_date, is_recurring, recurrence_rule, created_at, status")
+      .eq("user_id", userId)
+      .eq("normalized_title", normalizedTitle)
+      .gte("created_at", cutoff)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      console.warn("createTaskStep idempotency hit", { userId, normalizedTitle, existingId: existing.id });
+      return { ...existing, goalId: null, goalTitle: null };
+    }
+  }
+
   const goal = await findOrCreateGoal(userId, taskPayload.goalName || "Inbox / Unassigned");
   if (!goal?.id) return null;
   const isRecurring = Boolean(taskPayload.isRecurring);
@@ -481,16 +501,40 @@ export async function updateTaskStep(taskId, goalId, patch) {
   return { ok: false, error: first.error };
 }
 
+export async function findCaptureByMessageSid(messageSid) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !messageSid) return null;
+  const { data, error } = await supabase
+    .from("message_captures")
+    .select("id, processed, processing_result")
+    .eq("message_sid", messageSid)
+    .maybeSingle();
+  if (error) {
+    if (!isMissingColumn(error) && !isMissingTable(error)) {
+      console.error("findCaptureByMessageSid failed", { error, messageSid });
+    }
+    return null;
+  }
+  return data || null;
+}
+
 export async function logMessageCapture({
   userId,
   rawText,
+  messageSid,
+  normalizedText,
+  fromNumber,
   parsedIntent,
   parseConfidence,
+  parseMethod,
+  parseDurationMs,
   processed = false,
   createdTaskIds = [],
   updatedTaskIds = [],
   clarificationRequested = false,
   processingResult = "",
+  contextSnapshot,
+  errorDetail,
 }) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
@@ -498,13 +542,20 @@ export async function logMessageCapture({
     user_id: userId || null,
     channel: "whatsapp",
     raw_text: rawText || "",
+    message_sid: messageSid || null,
+    normalized_text: normalizedText || null,
+    from_number: fromNumber || null,
     parsed_intent: parsedIntent || "unknown",
     parse_confidence: Number.isFinite(parseConfidence) ? parseConfidence : 0,
+    parse_method: parseMethod || null,
+    parse_duration_ms: parseDurationMs || null,
     processed,
     created_task_ids: createdTaskIds,
     updated_task_ids: updatedTaskIds,
     clarification_requested: clarificationRequested,
     processing_result: processingResult,
+    context_snapshot: contextSnapshot || null,
+    error_detail: errorDetail || null,
     created_at: new Date().toISOString(),
   };
   const first = await supabase
@@ -538,12 +589,18 @@ export async function updateMessageCapture(captureId, patch = {}) {
   const payload = {
     parsed_intent: patch.parsedIntent,
     parse_confidence: patch.parseConfidence,
+    parse_method: patch.parseMethod,
+    parse_duration_ms: patch.parseDurationMs,
     processed: patch.processed,
     created_task_ids: patch.createdTaskIds,
     updated_task_ids: patch.updatedTaskIds,
     clarification_requested: patch.clarificationRequested,
     processing_result: patch.processingResult,
+    context_snapshot: patch.contextSnapshot,
+    error_detail: patch.errorDetail,
   };
+  // Remove undefined keys so Supabase doesn't null-out fields we didn't pass
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
   const first = await supabase.from("message_captures").update(payload).eq("id", captureId);
   if (!first.error) return;
   if (isMissingColumn(first.error)) {
@@ -559,6 +616,61 @@ export async function updateMessageCapture(captureId, patch = {}) {
   if (!isMissingTable(first.error)) {
     console.error("updateMessageCapture failed", { error: first.error, captureId, patch });
   }
+}
+
+export async function logParsedAction({
+  captureId,
+  userId,
+  actionType,
+  actionPayload = {},
+  targetTaskId,
+  result,
+  errorDetail,
+  confidence = 0,
+}) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId || !actionType) return null;
+  const payload = {
+    capture_id: captureId || null,
+    user_id: userId,
+    action_type: actionType,
+    action_payload: actionPayload,
+    target_task_id: targetTaskId || null,
+    result: result || null,
+    error_detail: errorDetail || null,
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    created_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from("parsed_message_actions")
+    .insert(payload)
+    .select("id")
+    .single();
+  if (error) {
+    if (!isMissingTable(error)) {
+      console.error("logParsedAction failed", { error, payload });
+    }
+    return null;
+  }
+  return data?.id || null;
+}
+
+export async function listParsedActions(userId, limit = 20) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase
+    .from("parsed_message_actions")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    if (!isMissingTable(error)) {
+      console.error("listParsedActions failed", { error, userId });
+    }
+    return [];
+  }
+  return data || [];
 }
 
 export async function logTaskEvent(taskId, eventType, metadata = {}) {

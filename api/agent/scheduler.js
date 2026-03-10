@@ -7,6 +7,7 @@ import {
 import {
   buildEveningCheckin,
   buildMorningBrief,
+  detectBehaviorPatterns,
   generateNudge,
   recomputeDailyPlan,
 } from "./_engine.js";
@@ -123,7 +124,7 @@ export default async function handler(req, res) {
         date: now,
       });
       const calendarEvents = profile.google_refresh_token
-        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch(() => [])
+        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
       const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
       const body = llmBody || buildMorningBrief({
@@ -148,9 +149,11 @@ export default async function handler(req, res) {
     if (shouldSend(profile, "midday_nudge", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
       const calEventsNudge = profile.google_refresh_token
-        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
+        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
-      const llmBody = await llmNudge(planState, "midday_nudge", profile, calEventsNudge).catch(() => null);
+      const recentCtx = sentToday || [];
+      const behavior = detectBehaviorPatterns(planState, recentCtx, local.dateKey);
+      const llmBody = await llmNudge(planState, "midday_nudge", profile, calEventsNudge, behavior).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -162,7 +165,7 @@ export default async function handler(req, res) {
         type: "midday_nudge",
         body: llmBody || nudge.body,
         relatedTaskIds: nudge.relatedTaskIds || [],
-        metadata: { reason: nudge.reason || "scheduled_midday_nudge" },
+        metadata: { reason: nudge.reason || "scheduled_midday_nudge", behavior: behavior.primaryPattern },
       });
       profileReport.actions.push({ type: "midday_nudge", sent, reason: nudge.reason });
       sentTypes.add("midday_nudge");
@@ -171,9 +174,11 @@ export default async function handler(req, res) {
     if (shouldSend(profile, "afternoon_followup", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
       const calEventsAfternoon = profile.google_refresh_token
-        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
+        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
-      const llmBody = await llmNudge(planState, "afternoon_followup", profile, calEventsAfternoon).catch(() => null);
+      const recentCtxAfternoon = sentToday || [];
+      const behaviorAfternoon = detectBehaviorPatterns(planState, recentCtxAfternoon, local.dateKey);
+      const llmBody = await llmNudge(planState, "afternoon_followup", profile, calEventsAfternoon, behaviorAfternoon).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -186,7 +191,7 @@ export default async function handler(req, res) {
         type: "afternoon_followup",
         body,
         relatedTaskIds: nudge.relatedTaskIds || [],
-        metadata: { reason: nudge.reason || "scheduled_afternoon_followup" },
+        metadata: { reason: nudge.reason || "scheduled_afternoon_followup", behavior: behaviorAfternoon.primaryPattern },
       });
       profileReport.actions.push({ type: "afternoon_followup", sent, reason: nudge.reason });
       sentTypes.add("afternoon_followup");
@@ -201,7 +206,7 @@ export default async function handler(req, res) {
         (t) => t.done && t.completedAt && t.completedAt.startsWith(local.dateKey)
       );
       const calEventsEvening = profile.google_refresh_token
-        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch(() => [])
+        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
       const llmBody = await llmEveningCheckin(planState, completedToday, profile, calEventsEvening).catch(() => null);
       const body = llmBody || buildEveningCheckin({ planState });
@@ -240,7 +245,7 @@ export default async function handler(req, res) {
         );
         if (!alreadySent) {
           const calEventsFollowup = profile.google_refresh_token
-            ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 2).catch(() => [])
+            ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 2).catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
             : [];
           const llmBody = await llmFollowUp(avoidedTask, calEventsFollowup, profile).catch(() => null);
           const fallbackBody = `You've postponed "${avoidedTask.title}" ${Number(avoidedTask.reschedule_count || 0)} times. Can you do just 10 minutes on it right now? Reply 'done' or 'archive' if it's no longer needed.`;

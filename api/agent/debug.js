@@ -1,9 +1,16 @@
 import {
   fetchAgentDebug,
   getSupabaseAdmin,
+  listParsedActions,
   normalizePhone,
   resolveInboundUser,
 } from "./_store.js";
+import {
+  buildMessageContext,
+  detectBehaviorPatterns,
+  parseMessageIntentWithLLM,
+  recomputeDailyPlan,
+} from "./_engine.js";
 
 function isDebugAuthorized(req) {
   const required = process.env.AGENT_DEBUG_KEY || "";
@@ -58,6 +65,44 @@ export default async function handler(req, res) {
     resolvedUserId = inbound?.userId || "";
   }
   if (!resolvedUserId) return res.status(400).json({ error: "Missing userId or from" });
+
+  // Parse-test: test the parser with raw text
+  if (action === "parse-test") {
+    const text = String(req.query?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "Missing text param" });
+    const result = await parseMessageIntentWithLLM(text, resolvedUserId, new Date());
+    return res.status(200).json({ userId: resolvedUserId, input: text, result });
+  }
+
+  // Context: view the full context bundle
+  if (action === "context") {
+    const ctx = await buildMessageContext(resolvedUserId, new Date());
+    return res.status(200).json({
+      userId: resolvedUserId,
+      generatedAt: new Date().toISOString(),
+      openTasks: ctx.openTasks.length,
+      overdueTasks: ctx.overdueTasks.length,
+      dueTodayTasks: ctx.dueTodayTasks.length,
+      recurringDueToday: ctx.recurringDueToday.length,
+      lastNudgedTaskId: ctx.lastNudgedTaskId,
+      preferredTaskIds: ctx.preferredTaskIds,
+      recentCompletions: ctx.recentCompletions.length,
+    });
+  }
+
+  // Actions: list parsed_message_actions audit trail
+  if (action === "actions") {
+    const limit = Math.min(100, Number(req.query?.limit || 20));
+    const actions = await listParsedActions(resolvedUserId, limit);
+    return res.status(200).json({ userId: resolvedUserId, count: actions.length, actions });
+  }
+
+  // Behavior: run behavior pattern detection
+  if (action === "behavior") {
+    const planState = await recomputeDailyPlan({ userId: resolvedUserId, date: new Date() });
+    const behavior = detectBehaviorPatterns(planState, [], new Date().toISOString().slice(0, 10));
+    return res.status(200).json({ userId: resolvedUserId, behavior });
+  }
 
   const data = await fetchAgentDebug(resolvedUserId, 30);
   return res.status(200).json({

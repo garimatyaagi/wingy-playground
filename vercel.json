@@ -3,6 +3,10 @@
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
+  "functions": {
+    "api/agent/whatsapp-webhook.js": { "maxDuration": 30 },
+    "api/agent/scheduler.js": { "maxDuration": 30 }
+  },
   "crons": [
     {
       "path": "/api/agent/scheduler",

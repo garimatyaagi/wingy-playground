@@ -11,6 +11,23 @@ function stripCodeFences(s) {
 
 // ─── Structured output schema for message parsing ───
 
+const TaskItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    dueDate: { type: ["string", "null"] },
+    estimatedMinutes: { type: "integer" },
+    urgency: { type: "integer" },
+    importance: { type: "integer" },
+    effortType: { type: "string" },
+    isRecurring: { type: "boolean" },
+    recurrenceRule: { type: ["string", "null"] },
+    goalName: { type: "string" },
+  },
+  required: ["title", "dueDate", "estimatedMinutes", "urgency", "importance", "effortType", "isRecurring", "recurrenceRule", "goalName"],
+};
+
 const ParseSchema = {
   name: "message_parse",
   strict: true,
@@ -26,6 +43,8 @@ const ParseSchema = {
           "complete_task",
           "reschedule_task",
           "archive_task",
+          "cancel_task",
+          "informational_update",
           "goal",
           "note",
           "ambiguous",
@@ -33,6 +52,7 @@ const ParseSchema = {
       },
       confidence: { type: "number" },
       taskTitle: { type: "string" },
+      tasks: { type: "array", items: TaskItemSchema },
       dueDate: { type: ["string", "null"] },
       goalName: { type: "string" },
       estimatedMinutes: { type: "integer" },
@@ -51,6 +71,7 @@ const ParseSchema = {
       "intent",
       "confidence",
       "taskTitle",
+      "tasks",
       "dueDate",
       "goalName",
       "estimatedMinutes",
@@ -79,7 +100,7 @@ export async function llmParseMessage(rawText, contextMessages = [], openTasks =
     .join("\n");
 
   const recentContext = contextMessages
-    .slice(0, 8)
+    .slice(0, 12)
     .map((m) => `[${m.direction || m.type}]: ${m.text || m.body || m.raw_text || ""}`)
     .join("\n");
 
@@ -96,8 +117,11 @@ ${recentContext || "(none)"}
 Parse the user's message and determine their intent. Be smart about context:
 - If they say "done with X" or "finished X" or "completed X", match X to an existing open task (use completionTarget).
 - If they say "move X to tomorrow" or "postpone X", it's a reschedule (rescheduleDays = number of days to push).
+- If they say "cancel X" or "never mind about X" or "drop X", it's cancel_task.
+- If the message contains multiple actions connected by "and", "then", or commas, split into separate tasks in the "tasks" array.
 - If they mention a new action to do, create a task with a clear title, realistic time estimate, and appropriate urgency/importance.
 - "need to", "have to", "gotta", "must", "should" all indicate task creation.
+- If the message is a status update like "meeting went well" or "just got out of gym", it's informational_update.
 - If it's a life reflection, journal entry, or thought — it's a note.
 - If it's a long-term aspiration ("I want to run a marathon") — it's a goal.
 - If ambiguous, set intent to "ambiguous" and provide a followUpQuestion.
@@ -106,6 +130,7 @@ For due dates, use ISO format (${today}T23:59:00.000Z for today). "tomorrow" = n
 For urgency: 1-5 (5=ASAP). For importance: 1-5 (5=critical).
 For effortType: deep_work, admin, health, call, errand, learning.
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
+For compound tasks, populate the "tasks" array with each individual task.
 If fields don't apply (e.g. completionTarget for create_task), use empty string or 0.`;
 
   const input = [
@@ -245,7 +270,7 @@ Rules:
 
 // ─── LLM Nudge ───
 
-export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}, calendarEvents = []) {
+export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}, calendarEvents = [], behaviorPatterns = null) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -262,17 +287,30 @@ export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}
     .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
     .join("\n");
 
+  // Build behavioral context for the prompt
+  let behaviorBlock = "";
+  if (behaviorPatterns?.patterns?.length > 0) {
+    const lines = behaviorPatterns.patterns.map((p) => {
+      if (p.type === "admin_drift") return `- Pattern: User completed ${p.completedLowCount} low-priority tasks while ${p.highUndoneCount} important tasks are untouched`;
+      if (p.type === "deep_work_avoidance") return `- Pattern: User avoids deep work tasks — ${p.avoidedCount} deep tasks postponed while ${p.adminDoneCount} admin tasks done`;
+      if (p.type === "repeated_postponement") return `- Pattern: "${p.taskTitle}" has been postponed ${p.rescheduleCount} times`;
+      if (p.type === "ignored_nudges") return `- Pattern: ${p.nudgeCount} nudges sent recently with no task completions`;
+      return "";
+    }).filter(Boolean);
+    if (lines.length > 0) behaviorBlock = `\nBehavioral patterns detected:\n${lines.join("\n")}\n`;
+  }
+
   const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${tone}.
 
 Top pending task: "${target.title}" (${target.estimatedMinutes || 30}m)
 Times postponed: ${postponed}
 Total remaining tasks: ${top.length} (${totalLeft}m total)
-${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}
+${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}${behaviorBlock}
 Rules:
 - Focus on the #1 task
 - If postponed 2+ times, be more direct about it
 - Suggest a specific time block (e.g. "Start a 20-minute sprint")
-- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it
+- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}
 - ${timeOfDay === "afternoon" ? "Mention that end of day is approaching" : "Encourage starting now"}
 - Keep under 80 words
 - Plain text only`;

@@ -1809,104 +1809,180 @@ select {
   }
 }
 
-/* Landing page */
+/* ═══════════════════════════════════════════════
+   Landing page
+   ═══════════════════════════════════════════════ */
 
+/* ─── Reveal animations ─── */
 .reveal {
   opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
+  transform: translateY(32px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 .reveal.revealed {
   opacity: 1;
   transform: translateY(0);
 }
 
+@keyframes landingFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes landingPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+@keyframes landingCursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes landingScrollLogos {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes landingGlowDrift {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-45%) scale(1.08); }
+}
+
+/* ─── Root ─── */
 .landingRoot {
   min-height: 100vh;
   background: var(--bg);
   position: relative;
+  overflow-x: hidden;
 }
 
+/* ─── Ambient glows ─── */
 .landingGlow {
   position: absolute;
-  top: -120px;
+  top: -180px;
   left: 50%;
   transform: translateX(-50%);
-  width: 800px;
-  height: 500px;
-  background: radial-gradient(ellipse, rgba(74, 154, 138, 0.1), transparent 70%);
+  width: 1000px;
+  height: 600px;
+  background: radial-gradient(ellipse, rgba(74, 154, 138, 0.12), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: landingGlowDrift 12s ease-in-out infinite;
+}
+.landingGlow2 {
+  position: absolute;
+  top: 200px;
+  right: -200px;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(ellipse, rgba(87, 131, 131, 0.06), transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
 
+/* ─── Nav ─── */
 .landingNav {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 100;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 32px;
-  background: rgba(250, 251, 248, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: 14px 40px;
+  background: rgba(250, 251, 248, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
 }
-
 .landingLogo {
-  font-family: "Paper Mono", monospace;
-  font-size: 16px;
+  font-family: "Paper Mono", ui-monospace, monospace;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text);
   text-decoration: none;
   letter-spacing: 0.02em;
 }
-
+.landingNavLinks {
+  display: flex;
+  gap: 28px;
+}
+.landingNavLinks a {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 200ms ease;
+}
+.landingNavLinks a:hover {
+  color: var(--text);
+}
 .landingSignIn {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
-  padding: 8px 16px;
+  padding: 8px 18px;
   border-radius: 999px;
   border: 1px solid rgba(74, 154, 138, 0.3);
-  transition: background 200ms ease, border-color 200ms ease;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
 }
-
 .landingSignIn:hover {
   background: rgba(74, 154, 138, 0.08);
   border-color: rgba(74, 154, 138, 0.5);
+  transform: translateY(-1px);
 }
 
+/* ─── Hero ─── */
 .landingHero {
-  max-width: 720px;
+  max-width: 800px;
   margin: 0 auto;
-  padding: 120px 32px 80px;
+  padding: 100px 32px 60px;
   text-align: center;
   position: relative;
   z-index: 1;
 }
-
+.landingHeroBadge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(74, 154, 138, 0.08);
+  border: 1px solid rgba(74, 154, 138, 0.15);
+  border-radius: 999px;
+  padding: 6px 16px;
+  margin-bottom: 28px;
+}
 .landingHero h1 {
-  font-size: clamp(36px, 5.5vw, 64px);
-  line-height: 1.08;
-  letter-spacing: -0.02em;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
   color: var(--text);
   font-family: "Paper Mono", ui-monospace, monospace;
+  margin: 0;
 }
-
-.landingHero p {
-  margin: 20px auto 0;
-  max-width: 48ch;
+.landingHeroAccent {
+  background: linear-gradient(135deg, var(--accent), var(--support));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.landingHeroSub {
+  margin: 24px auto 0;
+  max-width: 52ch;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.7;
 }
-
+.landingHeroActions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 36px;
+}
 .landingHeroCta {
-  display: inline-block;
-  margin-top: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 14px 28px;
   background: var(--accent);
   color: #fff;
@@ -1914,109 +1990,539 @@ select {
   text-decoration: none;
   font-weight: 650;
   font-size: 15px;
-  box-shadow: 0 8px 20px rgba(74, 154, 138, 0.2);
-  transition: transform 200ms ease, box-shadow 200ms ease, background 200ms ease;
+  box-shadow: 0 8px 24px rgba(74, 154, 138, 0.25);
+  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 250ms ease, background 200ms ease;
 }
-
 .landingHeroCta:hover {
   background: var(--accent-strong);
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(74, 154, 138, 0.28);
+  box-shadow: 0 14px 32px rgba(74, 154, 138, 0.32);
+}
+.landingHeroCtaSecondary {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 14px 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+.landingHeroCtaSecondary:hover {
+  color: var(--text);
+  border-color: rgba(26, 26, 46, 0.18);
+  background: var(--surface-soft);
 }
 
-.landingFeatures {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 40px 32px 80px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 32px;
+/* ─── Typing demo ─── */
+.landingHeroTyping {
+  margin-top: 40px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  box-shadow: 0 4px 20px rgba(26, 26, 46, 0.04);
 }
-
-.featureCard {
+.landingHeroTypingLabel {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.landingTypingText {
+  color: var(--text);
+  font-family: "Paper Mono", ui-monospace, monospace;
+  font-size: 14px;
+  min-width: 280px;
   text-align: left;
-  padding: 28px 24px;
+}
+.landingCursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: var(--accent);
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: landingCursorBlink 0.8s ease infinite;
+}
+
+/* ─── Logo strip ─── */
+.landingLogoStrip {
+  overflow: hidden;
+  padding: 28px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 20px 0 0;
+}
+.landingLogoTrack {
+  display: flex;
+  gap: 48px;
+  animation: landingScrollLogos 20s linear infinite;
+  width: max-content;
+}
+.landingLogoItem {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+/* ─── Section layout ─── */
+.landingSection {
+  padding: 100px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.landingSectionAlt {
+  background: var(--surface-soft);
+  max-width: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.landingSectionAlt > * {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.landingSectionHeader {
+  text-align: center;
+  margin-bottom: 64px;
+}
+.landingSectionLabel {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.landingSectionHeader h2 {
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-family: "Paper Mono", ui-monospace, monospace;
+  margin: 0 0 16px;
+}
+.landingSectionHeader p {
+  max-width: 48ch;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+/* ─── Features grid ─── */
+.landingFeaturesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+.landingFeatureCard {
+  padding: 36px 32px;
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   background: var(--surface);
-  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  transition: box-shadow 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
 }
-
-.featureCard:hover {
-  box-shadow: 0 8px 24px rgba(26, 26, 46, 0.06);
-  transform: translateY(-2px);
+.landingFeatureCard:hover {
+  box-shadow: 0 12px 32px rgba(26, 26, 46, 0.07);
+  transform: translateY(-4px);
+  border-color: rgba(74, 154, 138, 0.2);
 }
-
-.featureIcon {
+.landingFeatureIcon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(74, 154, 138, 0.08);
   color: var(--accent);
-  margin-bottom: 14px;
+  margin-bottom: 18px;
+}
+.landingFeatureCard h3 {
+  font-size: 19px;
+  margin: 0 0 10px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.landingFeatureCard p {
+  font-size: 14.5px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
 }
 
-.featureCard h3 {
-  font-size: 18px;
-  margin-bottom: 8px;
+/* ─── How it works steps ─── */
+.landingStepsGrid {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.landingStep {
+  flex: 1;
+  padding: 0 24px;
+  text-align: center;
+}
+.landingStepNumber {
+  font-family: "Paper Mono", ui-monospace, monospace;
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--accent);
+  opacity: 0.2;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+.landingStep h3 {
+  font-size: 19px;
+  margin: 0 0 10px;
   color: var(--text);
 }
+.landingStep p {
+  font-size: 14.5px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+}
+.landingStepConnector {
+  width: 48px;
+  flex-shrink: 0;
+  margin-top: 28px;
+  border-top: 2px dashed rgba(74, 154, 138, 0.2);
+}
 
-.featureCard p {
+/* ─── WhatsApp phone demo ─── */
+.landingDemoRow {
+  display: flex;
+  gap: 64px;
+  align-items: center;
+}
+.landingDemoLeft {
+  flex: 0 0 340px;
+}
+.landingDemoRight {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.landingPhoneMockup {
+  background: #0b141a;
+  border-radius: 32px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: landingFloat 6s ease-in-out infinite;
+}
+.landingPhoneNotch {
+  height: 32px;
+  background: #0b141a;
+  border-radius: 0 0 16px 16px;
+  margin: 0 auto;
+  width: 140px;
+}
+.landingPhoneHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 12px;
+  background: #1f2c34;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.landingPhoneAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.landingPhoneName {
+  color: #e9edef;
+  font-size: 14px;
+  font-weight: 600;
+}
+.landingPhoneStatus {
+  color: #8696a0;
+  font-size: 11px;
+}
+.landingPhoneChat {
+  padding: 16px 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 360px;
+  background: #0b141a;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+.landingChatBubble {
+  max-width: 80%;
+  padding: 8px 12px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  position: relative;
+}
+.landingChatBubble.agent {
+  background: #1f2c34;
+  color: #e9edef;
+  align-self: flex-start;
+  border-top-left-radius: 2px;
+}
+.landingChatBubble.user {
+  background: #005c4b;
+  color: #e9edef;
+  align-self: flex-end;
+  border-top-right-radius: 2px;
+}
+.landingChatBubble strong {
+  color: var(--accent);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.landingChatTime {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ─── Demo feature list ─── */
+.landingDemoFeature {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.landingDemoFeatureDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 5px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(74, 154, 138, 0.3);
+}
+.landingDemoFeature h4 {
+  font-size: 16px;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.landingDemoFeature p {
   font-size: 14px;
   color: var(--muted);
   line-height: 1.6;
+  margin: 0;
 }
 
-.landingBottomCta {
-  max-width: 600px;
+/* ─── Stats ─── */
+.landingStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+  text-align: center;
+  padding: 20px 0;
+}
+.landingStat {
+  padding: 24px 16px;
+}
+.landingStatNumber {
+  font-family: "Paper Mono", ui-monospace, monospace;
+  font-size: clamp(36px, 4vw, 52px);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.landingStatLabel {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+/* ─── Final CTA ─── */
+.landingFinalCta {
+  text-align: center;
+  padding: 100px 32px 80px;
+  position: relative;
+  overflow: hidden;
+}
+.landingFinalCtaGlow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 700px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(74, 154, 138, 0.08), transparent 70%);
+  pointer-events: none;
+  animation: landingPulse 4s ease-in-out infinite;
+}
+.landingFinalCta h2 {
+  font-size: clamp(28px, 4.5vw, 48px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-family: "Paper Mono", ui-monospace, monospace;
+  margin: 0 0 16px;
+  position: relative;
+}
+.landingFinalCta p {
+  max-width: 44ch;
+  margin: 0 auto 36px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.65;
+  position: relative;
+}
+
+/* ─── Footer ─── */
+.landingFooter {
+  border-top: 1px solid var(--border);
+  padding: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.landingFooterInner {
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 60px 32px 80px;
+  padding: 60px 40px 40px;
+  display: flex;
+  justify-content: space-between;
+  gap: 64px;
+}
+.landingFooterBrand {
+  max-width: 280px;
+}
+.landingFooterBrand p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.landingFooterLinks {
+  display: flex;
+  gap: 64px;
+}
+.landingFooterCol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.landingFooterCol h4 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.landingFooterCol a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 200ms ease;
+}
+.landingFooterCol a:hover {
+  color: var(--accent);
+}
+.landingFooterBottom {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 40px 28px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--muted);
   text-align: center;
 }
 
-.landingBottomCta h2 {
-  font-size: clamp(24px, 3.5vw, 36px);
-  line-height: 1.15;
-  color: var(--text);
-  font-family: "Paper Mono", ui-monospace, monospace;
-}
-
-.landingBottomCta p {
-  margin: 12px 0 28px;
-  color: var(--muted);
-  font-size: 15px;
-}
-
-.landingFooter {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  padding: 24px 0 32px;
-  font-size: 13px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
-  max-width: 960px;
-  margin: 0 auto;
-}
-
-.landingFooter a {
-  text-decoration: none;
-  transition: color 200ms ease;
-}
-
-.landingFooter a:hover {
-  color: var(--accent);
+/* ─── Responsive ─── */
+@media (max-width: 900px) {
+  .landingFeaturesGrid {
+    grid-template-columns: 1fr;
+  }
+  .landingStepsGrid {
+    flex-direction: column;
+    gap: 32px;
+  }
+  .landingStepConnector {
+    width: 2px;
+    height: 32px;
+    border-top: none;
+    border-left: 2px dashed rgba(74, 154, 138, 0.2);
+    margin: 0 auto;
+  }
+  .landingDemoRow {
+    flex-direction: column;
+    gap: 40px;
+  }
+  .landingDemoLeft {
+    flex: none;
+    width: 100%;
+    max-width: 340px;
+    margin: 0 auto;
+  }
+  .landingStatsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
-  .landingHero {
-    padding: 80px 20px 60px;
-  }
-
-  .landingFeatures {
-    grid-template-columns: 1fr;
-    padding: 24px 20px 48px;
-  }
-
   .landingNav {
-    padding: 14px 20px;
+    padding: 12px 20px;
+  }
+  .landingNavLinks {
+    display: none;
+  }
+  .landingHero {
+    padding: 72px 20px 48px;
+  }
+  .landingHeroActions {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .landingHeroTyping {
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 16px;
+  }
+  .landingTypingText {
+    min-width: 0;
+  }
+  .landingSection {
+    padding: 64px 20px;
+  }
+  .landingSectionHeader {
+    margin-bottom: 40px;
+  }
+  .landingPhoneChat {
+    min-height: 300px;
+  }
+  .landingFooterInner {
+    flex-direction: column;
+    gap: 32px;
+    padding: 40px 20px 24px;
+  }
+  .landingFooterLinks {
+    gap: 40px;
+  }
+  .landingStatsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
   }
 }
 

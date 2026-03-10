@@ -7,7 +7,7 @@ export default function ExecutionHeader({
   userSlot,
 }) {
   return (
-    <header className="execHeader cardShell">
+    <header className="execHeader">
       <div>
         <p className="eyebrow">365 Tasks</p>
         <h1>{workspaceName || "Execution Workspace"}</h1>

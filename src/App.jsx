@@ -282,7 +282,7 @@ function normalizeCachedGoals(rawGoals, localMeta = {}) {
         progressType: goal.progressType || "checklist",
         targetValue: Number.isFinite(goal.targetValue) ? goal.targetValue : 100,
         currentValue: Number.isFinite(goal.currentValue) ? goal.currentValue : 0,
-        color: goal.color || "#8a2f2a",
+        color: goal.color || "#4A9A8A",
         archivedAt: goal.archivedAt || null,
         createdAt: toIsoOrNull(goal.createdAt) || new Date().toISOString(),
         tasks,
@@ -582,7 +582,7 @@ export default function App() {
           progressType: row.progress_type || "checklist",
           targetValue: Number.isFinite(row.target_value) ? row.target_value : 100,
           currentValue: Number.isFinite(row.current_value) ? row.current_value : 0,
-          color: row.color || "#8a2f2a",
+          color: row.color || "#4A9A8A",
           archivedAt: row.archived_at || null,
           createdAt: row.created_at || new Date().toISOString(),
           tasks: byGoal[row.id] || [],
@@ -1113,7 +1113,7 @@ export default function App() {
           progressType: "checklist",
           targetValue: 100,
           currentValue: 0,
-          color: "#8a2f2a",
+          color: "#4A9A8A",
           archivedAt: null,
           tasks: [],
           createdAt: new Date().toISOString(),
@@ -1135,7 +1135,7 @@ export default function App() {
           progress_type: "checklist",
           target_value: 100,
           current_value: 0,
-          color: "#8a2f2a",
+          color: "#4A9A8A",
           archived_at: null,
           user_id: user?.id || null,
         })
@@ -1163,7 +1163,7 @@ export default function App() {
           progressType: data.progress_type || "checklist",
           targetValue: Number.isFinite(data.target_value) ? data.target_value : 100,
           currentValue: Number.isFinite(data.current_value) ? data.current_value : 0,
-          color: data.color || "#8a2f2a",
+          color: data.color || "#4A9A8A",
           archivedAt: data.archived_at || null,
           tasks: [],
           createdAt: data.created_at || new Date().toISOString(),
@@ -1183,7 +1183,7 @@ export default function App() {
           progressType: "checklist",
           targetValue: 100,
           currentValue: 0,
-          color: "#8a2f2a",
+          color: "#4A9A8A",
           archivedAt: null,
           tasks: [],
           createdAt: new Date().toISOString(),
@@ -2855,7 +2855,7 @@ export default function App() {
             userSlot={<UserButton />}
           />
 
-          <section className="cardShell appSurfaceTabs">
+          <nav className="appSurfaceTabs">
             {[
               { id: "today", label: "Today" },
               { id: "inbox", label: "Inbox" },
@@ -2878,7 +2878,7 @@ export default function App() {
               </button>
             ))}
             {activeSprint ? <p className="sprintBadge">Sprint running: {activeSprint.title} · {sprintLabel}</p> : null}
-          </section>
+          </nav>
 
           {dataError ? <div className="errorBanner">{dataError}</div> : null}
 
@@ -2887,7 +2887,7 @@ export default function App() {
               <p className="subtle">Loading your execution workspace...</p>
             </section>
           ) : (
-            <section className="appSurfaceArea">
+            <section className="appSurfaceArea" key={activeSurface}>
               {activeSurface === "today" ? (
                 <TodaySurface
                   dateLabel={formatFriendlyDate(new Date())}
@@ -3009,10 +3009,10 @@ function AuthPage() {
 
   const appearance = {
     variables: {
-      colorPrimary: "#8a2f2a",
-      colorText: "#1f1b19",
-      colorBackground: "#fffcf7",
-      borderRadius: "14px",
+      colorPrimary: "#4A9A8A",
+      colorText: "#1A1A2E",
+      colorBackground: "#FFFFFF",
+      borderRadius: "10px",
       fontFamily: "Paper Mono, ui-monospace, monospace",
     },
   };

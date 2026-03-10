@@ -92,25 +92,26 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Vercel cron sends Authorization: Bearer <CRON_SECRET> automatically
+  // Auth: Accept Bearer header (Vercel cron) or ?token= query param (external cron services)
   const cronSecret = (process.env.CRON_SECRET || "").trim();
   if (cronSecret) {
     const authHeader = String(req.headers.authorization || "").trim();
     const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    const bearerMatch = bearerToken === cronSecret;
-    if (!bearerMatch) {
+    const queryToken = String(req.query?.token || "").trim();
+    const authenticated = bearerToken === cronSecret || queryToken === cronSecret;
+    if (!authenticated) {
       console.error("scheduler_auth_failed", JSON.stringify({
         hasAuth: !!authHeader,
-        authPrefix: authHeader.slice(0, 10),
+        hasQueryToken: !!queryToken,
         bearerLen: bearerToken.length,
         secretLen: cronSecret.length,
-        match: bearerMatch,
       }));
       return res.status(401).json({ error: "Unauthorized" });
     }
   }
 
   const now = new Date();
+  const forceType = String(req.query?.force || req.body?.force || "").trim();
   const profiles = await listActiveProfiles();
   const report = [];
 
@@ -123,10 +124,11 @@ export default async function handler(req, res) {
       userId: profile.userId,
       timezone: profile.timezone,
       dateKey: local.dateKey,
+      minuteOfDay: local.minuteOfDay,
       actions: [],
     };
 
-    if (shouldSend(profile, "morning_brief", local, sentTypes)) {
+    if (forceType === "morning_brief" || shouldSend(profile, "morning_brief", local, sentTypes)) {
       const planState = await recomputeDailyPlan({
         userId: profile.userId,
         date: now,
@@ -154,7 +156,7 @@ export default async function handler(req, res) {
       sentTypes.add("morning_brief");
     }
 
-    if (shouldSend(profile, "midday_nudge", local, sentTypes)) {
+    if (forceType === "midday_nudge" || shouldSend(profile, "midday_nudge", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
       const calEventsNudge = profile.google_refresh_token
         ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
@@ -179,7 +181,7 @@ export default async function handler(req, res) {
       sentTypes.add("midday_nudge");
     }
 
-    if (shouldSend(profile, "afternoon_followup", local, sentTypes)) {
+    if (forceType === "afternoon_followup" || shouldSend(profile, "afternoon_followup", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
       const calEventsAfternoon = profile.google_refresh_token
         ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
@@ -205,7 +207,7 @@ export default async function handler(req, res) {
       sentTypes.add("afternoon_followup");
     }
 
-    if (shouldSend(profile, "evening_checkin", local, sentTypes)) {
+    if (forceType === "evening_checkin" || shouldSend(profile, "evening_checkin", local, sentTypes)) {
       const planState = await recomputeDailyPlan({
         userId: profile.userId,
         date: now,

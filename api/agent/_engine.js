@@ -24,6 +24,55 @@ const ACTION_VERBS = [
   "update",
   "submit",
   "pay",
+  "need",
+  "buy",
+  "fix",
+  "schedule",
+  "meet",
+  "hire",
+  "launch",
+  "setup",
+  "set up",
+  "start",
+  "apply",
+  "create",
+  "design",
+  "research",
+  "reach out",
+  "follow up",
+  "check",
+  "pick up",
+  "clean",
+  "organize",
+  "file",
+  "sign",
+  "register",
+  "cancel",
+  "return",
+  "ship",
+  "deliver",
+  "cook",
+  "order",
+  "build",
+  "test",
+  "migrate",
+  "deploy",
+  "push",
+  "upload",
+  "download",
+  "share",
+  "post",
+  "announce",
+  "confirm",
+  "negotiate",
+  "pitch",
+  "present",
+  "practice",
+  "meditate",
+  "stretch",
+  "run",
+  "walk",
+  "swim",
 ];
 
 const STOPWORDS = new Set([
@@ -199,9 +248,11 @@ function inferUrgency(text, dueDate) {
 
 function inferImportance(text) {
   const lower = text.toLowerCase();
-  if (/\b(strategy|client|investor|proposal|deck|launch)\b/.test(lower)) return 5;
-  if (/\b(passport|tax|dentist|health|exam)\b/.test(lower)) return 4;
-  if (/\b(admin|organize|cleanup)\b/.test(lower)) return 2;
+  if (/\b(strategy|client|investor|proposal|deck|launch|pitch|hire|negotiate|revenue|funding)\b/.test(lower)) return 5;
+  if (/\b(passport|tax|dentist|health|exam|deadline|urgent|critical|interview|onboarding|contract)\b/.test(lower)) return 4;
+  if (/\b(influencer|marketing|sales|partnership|outreach|meeting|presentation|demo)\b/.test(lower)) return 4;
+  if (/\b(admin|organize|cleanup|tidy|sort)\b/.test(lower)) return 2;
+  if (/\b(groceries|laundry|dishes)\b/.test(lower)) return 1;
   return 3;
 }
 
@@ -382,7 +433,8 @@ export function parseMessageIntent(rawText, now = new Date()) {
     };
   }
 
-  if (!isLikelyActionable(text)) {
+  const looksLikeTask = /^(i\s+)?(need|have|got|want|gotta|must|should)\s+(to\s+)?/i.test(text);
+  if (!isLikelyActionable(text) && !looksLikeTask) {
     return {
       intent: "ambiguous",
       confidence: 0.35,
@@ -665,39 +717,82 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
   const top = planState.topPriorities || [];
   const recurring = planState.recurringDue || [];
   const overdue = planState.overdue || [];
+  const deferred = planState.deferred || [];
   const next = planState.nextBest;
 
-  const lines = ["Good morning. Here is your plan.", ""];
-  lines.push("Top 3:");
-  if (top.length === 0) lines.push("- No priorities yet.");
+  const lines = [];
+  if (tone === "ruthless") {
+    lines.push("No excuses today. Here is what gets done:");
+  } else if (tone === "gentle") {
+    lines.push("Good morning. Let's make today count.");
+  } else {
+    lines.push("Morning. Your day is planned.");
+  }
+  lines.push("");
+
+  if (overdue.length > 0) {
+    lines.push(`\u26a0\ufe0f ${overdue.length} overdue task${overdue.length > 1 ? "s" : ""}:`);
+    overdue.slice(0, 3).forEach((task) => {
+      const postponed = Number(task.rescheduleCount || 0);
+      lines.push(`  - ${task.title}${postponed >= 2 ? ` (postponed ${postponed}x)` : ""}`);
+    });
+    lines.push("");
+  }
+
+  lines.push("Today's top priorities:");
+  if (top.length === 0) {
+    lines.push("- Nothing scheduled. Capture tasks by sending them here.");
+  }
   top.slice(0, 3).forEach((task, index) => {
-    lines.push(`${index + 1}. ${formatTaskLine(task)}`);
+    const est = task.estimatedMinutes || 30;
+    const postponed = Number(task.rescheduleCount || 0);
+    let line = `${index + 1}. ${task.title} (${est}m)`;
+    if (postponed >= 2) line += ` \u2014 you've postponed this ${postponed} times`;
+    if (task.avoidanceScore >= 3) line += " \u2014 stop avoiding this";
+    lines.push(line);
   });
   lines.push("");
-  lines.push("Recurring due:");
-  if (recurring.length === 0) lines.push("- None.");
-  recurring.slice(0, 4).forEach((task) => lines.push(`- ${task.title}`));
-  lines.push("");
-  if (overdue.length > 0) lines.push(`Risk: ${overdue[0].title} is overdue.`);
-  else lines.push("Risk: avoid replacing deep work with admin.");
-  lines.push(
-    tone === "ruthless"
-      ? "Rule: no new tasks before priority #1 is done."
-      : tone === "gentle"
-        ? "Rule: start priority #1 with one focused block."
-        : "Rule: finish the hard thing first."
-  );
-  if (next) lines.push(`Next best: ${next.title}`);
+
+  if (recurring.length > 0) {
+    lines.push(`Recurring (${recurring.length}):`);
+    recurring.slice(0, 4).forEach((task) => lines.push(`  - ${task.title}`));
+    lines.push("");
+  }
+
+  const totalMinutes = top.reduce((sum, t) => sum + (t.estimatedMinutes || 30), 0);
+  lines.push(`Total focus needed: ${totalMinutes} minutes.`);
+
+  if (tone === "ruthless") {
+    lines.push("Rule: priority #1 gets done before anything else. No inbox, no calls.");
+  } else if (tone === "gentle") {
+    lines.push("Start with priority #1. One focused block of 25 minutes.");
+  } else {
+    lines.push("Rule: finish the hard thing first. Reply 'done' when completed.");
+  }
+
+  if (deferred.length > 0) {
+    lines.push(`\n${deferred.length} deferred task${deferred.length > 1 ? "s" : ""} waiting for attention.`);
+  }
   return lines.join("\n");
 }
 
 export function buildEveningCheckin({ planState }) {
   const top = planState.topPriorities || [];
-  const lines = ["Evening check-in. Reply done / partial / skipped for:"];
+  const overdue = planState.overdue || [];
+  const lines = ["Evening check-in. How did today go?", ""];
+  lines.push("Reply done / partial / skipped for each:");
   top.slice(0, 3).forEach((task, index) => {
-    lines.push(`${index + 1}. ${task.title}`);
+    const postponed = Number(task.rescheduleCount || 0);
+    let line = `${index + 1}. ${task.title}`;
+    if (postponed >= 2) line += ` (postponed ${postponed}x already)`;
+    lines.push(line);
   });
-  lines.push("If skipped, add reason: time issue / avoided / blocked / not needed.");
+  lines.push("");
+  if (overdue.length > 0) {
+    lines.push(`You still have ${overdue.length} overdue task${overdue.length > 1 ? "s" : ""}. Should I reschedule or archive any?`);
+  }
+  lines.push("If skipped: time issue / avoided / blocked / not needed.");
+  lines.push("What's the #1 thing for tomorrow?");
   return lines.join("\n");
 }
 
@@ -747,11 +842,18 @@ export async function generateNudge({
   }
 
   const sprintMinutes = Math.min(30, Math.max(15, Number(target.estimatedMinutes || 30)));
+  const openCount = top.length;
+  const totalLeft = top.reduce((s, t) => s + (t.estimatedMinutes || 30), 0);
+
+  if (tone === "ruthless") {
+    return {
+      body: `"${target.title}" is still pending. ${openCount} priorities, ${totalLeft}m total. Start ${sprintMinutes} minutes now. No negotiation.`,
+      relatedTaskIds: [target.id],
+      reason: "next_best_incomplete",
+    };
+  }
   return {
-    body:
-      tone === "ruthless"
-        ? `Main priority still pending: "${target.title}". Start ${sprintMinutes} minutes now.`
-        : `Your next priority is "${target.title}". Start a ${sprintMinutes}-minute sprint now?`,
+    body: `Your next priority is "${target.title}" (${sprintMinutes}m). ${openCount - 1} more after this. Start now and reply 'done' when finished.`,
     relatedTaskIds: [target.id],
     reason: "next_best_incomplete",
   };

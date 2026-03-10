@@ -1442,6 +1442,17 @@ select {
   color: #4f4643;
 }
 
+.captureSource {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #25d366;
+  color: #fff;
+  font-weight: 600;
+}
+
 .captureText {
   font-size: 14px;
   color: #2e2826;

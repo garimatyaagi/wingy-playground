@@ -2,6 +2,16 @@ function prettyType(value) {
   return String(value || "unknown").replace(/_/g, " ");
 }
 
+function prettyTime(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
+}
+
 export default function InboxSurface({
   simulateText,
   onSimulateTextChange,
@@ -17,6 +27,8 @@ export default function InboxSurface({
   onCancelEdit,
 }) {
   const pendingReview = captures.filter((item) => item.requiresReview && item.status === "pending");
+  const whatsappCaptures = captures.filter((item) => item.source === "whatsapp");
+  const localCaptures = captures.filter((item) => item.source !== "whatsapp");
 
   return (
     <section className="inboxSurface">
@@ -41,11 +53,9 @@ export default function InboxSurface({
         </div>
       </article>
 
-      <article className="cardShell reviewQueueCard">
-        <h3>Needs review ({pendingReview.length})</h3>
-        {pendingReview.length === 0 ? (
-          <p className="subtle">No low-confidence items right now.</p>
-        ) : (
+      {pendingReview.length > 0 ? (
+        <article className="cardShell reviewQueueCard">
+          <h3>Needs review ({pendingReview.length})</h3>
           <div className="inboxCardList">
             {pendingReview.map((item) => (
               <div key={item.id} className="inboxCaptureCard review">
@@ -62,16 +72,42 @@ export default function InboxSurface({
               </div>
             ))}
           </div>
+        </article>
+      ) : null}
+
+      <article className="cardShell capturesCard">
+        <h3>WhatsApp captures ({whatsappCaptures.length})</h3>
+        {whatsappCaptures.length === 0 ? (
+          <p className="subtle">No WhatsApp messages received yet. Send a message to your WhatsApp number to see captures here.</p>
+        ) : (
+          <div className="inboxCardList">
+            {whatsappCaptures.map((item) => (
+              <div key={item.id} className="inboxCaptureCard">
+                <div className="captureTopRow">
+                  <span className="captureType">{prettyType(item.parsedType)}</span>
+                  <span className="subtle">{Math.round((item.confidence || 0) * 100)}%</span>
+                  <span className="captureSource">WhatsApp</span>
+                </div>
+                <p className="captureText">{item.sourceText}</p>
+                <p className="subtle">
+                  {item.previewTitle ? `Result: ${item.previewTitle}` : "Processing..."}
+                  {item.createdTaskIds?.length ? ` · ${item.createdTaskIds.length} task(s) created` : ""}
+                  {item.updatedTaskIds?.length ? ` · ${item.updatedTaskIds.length} task(s) updated` : ""}
+                </p>
+                <p className="subtle">
+                  {prettyTime(item.createdAt)} · Status: {item.status}
+                </p>
+              </div>
+            ))}
+          </div>
         )}
       </article>
 
-      <article className="cardShell capturesCard">
-        <h3>Recent WhatsApp captures</h3>
-        {captures.length === 0 ? (
-          <p className="subtle">No captured messages yet.</p>
-        ) : (
+      {localCaptures.length > 0 ? (
+        <article className="cardShell capturesCard">
+          <h3>Manual captures ({localCaptures.length})</h3>
           <div className="inboxCardList">
-            {captures.map((item) => {
+            {localCaptures.map((item) => {
               const editing = editingId === item.id;
               return (
                 <div key={item.id} className="inboxCaptureCard">
@@ -124,8 +160,8 @@ export default function InboxSurface({
               );
             })}
           </div>
-        )}
-      </article>
+        </article>
+      ) : null}
     </section>
   );
 }

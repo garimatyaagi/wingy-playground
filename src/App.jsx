@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SignedIn,
   SignedOut,
@@ -399,6 +399,10 @@ export default function App() {
   const [debugData, setDebugData] = useState(null);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
 
+  const [serverCaptures, setServerCaptures] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const lastRefreshRef = useRef(0);
+
   const [intakeRawText, setIntakeRawText] = useState("");
   const [intakePreview, setIntakePreview] = useState([]);
   const [intakeParsing, setIntakeParsing] = useState(false);
@@ -614,7 +618,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, supabase]);
+  }, [user?.id, supabase, refreshKey]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -812,31 +816,53 @@ export default function App() {
     return `${mins}:${String(secs).padStart(2, "0")} left`;
   }, [activeSprint, clockNow]);
 
-  const inboxCaptures = useMemo(
-    () =>
-      (Array.isArray(whatsAppFeed) ? whatsAppFeed : []).map((entry) => {
-        const parsedType = entry.parsedType || entry.kind || "ambiguous";
-        const confidence = Number.isFinite(entry.confidence) ? entry.confidence : 0.5;
-        const requiresReview =
-          Boolean(entry.requiresReview) ||
-          parsedType === "ambiguous" ||
-          confidence < 0.55 ||
-          entry.status === "needs_follow_up";
-        return {
-          id: entry.id,
-          sourceText: entry.sourceText || entry.text || "",
-          parsedType,
-          confidence,
-          requiresReview,
-          followUpQuestion: entry.followUpQuestion || "",
-          previewTitle: entry.previewTitle || "",
-          parsedPayload: entry.parsedPayload || null,
-          status: entry.status || "pending",
-          createdAt: entry.createdAt || new Date().toISOString(),
-        };
-      }),
-    [whatsAppFeed]
-  );
+  const inboxCaptures = useMemo(() => {
+    const localEntries = (Array.isArray(whatsAppFeed) ? whatsAppFeed : []).map((entry) => {
+      const parsedType = entry.parsedType || entry.kind || "ambiguous";
+      const confidence = Number.isFinite(entry.confidence) ? entry.confidence : 0.5;
+      const requiresReview =
+        Boolean(entry.requiresReview) ||
+        parsedType === "ambiguous" ||
+        confidence < 0.55 ||
+        entry.status === "needs_follow_up";
+      return {
+        id: entry.id,
+        sourceText: entry.sourceText || entry.text || "",
+        parsedType,
+        confidence,
+        requiresReview,
+        followUpQuestion: entry.followUpQuestion || "",
+        previewTitle: entry.previewTitle || "",
+        parsedPayload: entry.parsedPayload || null,
+        status: entry.status || "pending",
+        createdAt: entry.createdAt || new Date().toISOString(),
+        source: "local",
+      };
+    });
+
+    const localIds = new Set(localEntries.map((e) => e.id));
+    const remoteEntries = (serverCaptures || [])
+      .filter((row) => !localIds.has(String(row.id)))
+      .map((row) => ({
+        id: String(row.id),
+        sourceText: row.raw_text || "",
+        parsedType: row.parsed_intent || "unknown",
+        confidence: Number.isFinite(row.parse_confidence) ? row.parse_confidence : 0,
+        requiresReview: Boolean(row.clarification_requested) || row.parsed_intent === "ambiguous",
+        followUpQuestion: "",
+        previewTitle: row.processing_result || "",
+        parsedPayload: null,
+        status: row.processed ? (row.processing_result === "error" ? "error" : "processed") : "pending",
+        createdAt: row.created_at || new Date().toISOString(),
+        source: "whatsapp",
+        createdTaskIds: row.created_task_ids || [],
+        updatedTaskIds: row.updated_task_ids || [],
+      }));
+
+    return [...remoteEntries, ...localEntries].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [whatsAppFeed, serverCaptures]);
 
   const pendingReviewCount = useMemo(
     () => inboxCaptures.filter((item) => item.requiresReview && item.status === "pending").length,
@@ -2447,6 +2473,42 @@ export default function App() {
     }
   }
 
+  const refreshWorkspace = useCallback(() => {
+    const now = Date.now();
+    if (now - lastRefreshRef.current < 5000) return;
+    lastRefreshRef.current = now;
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const loadServerCaptures = useCallback(async () => {
+    if (!supabase || !user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from("message_captures")
+        .select("id, user_id, raw_text, parsed_intent, parse_confidence, processed, processing_result, clarification_requested, created_task_ids, updated_task_ids, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error) {
+        console.error("loadServerCaptures failed:", error);
+        return;
+      }
+      setServerCaptures(data || []);
+    } catch (err) {
+      console.error("loadServerCaptures error:", err);
+    }
+  }, [supabase, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !supabase) return;
+    loadServerCaptures();
+    const interval = setInterval(() => {
+      loadServerCaptures();
+      refreshWorkspace();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [user?.id, supabase, loadServerCaptures, refreshWorkspace]);
+
   function commitTopPriorities() {
     const top = commandCenter.topPriorities || [];
     if (top.length === 0) {
@@ -2789,7 +2851,13 @@ export default function App() {
                 key={tab.id}
                 type="button"
                 className={activeSurface === tab.id ? "ghostButton mini active" : "ghostButton mini"}
-                onClick={() => setActiveSurface(tab.id)}
+                onClick={() => {
+                  setActiveSurface(tab.id);
+                  if (tab.id === "today" || tab.id === "inbox") {
+                    refreshWorkspace();
+                    if (tab.id === "inbox") loadServerCaptures();
+                  }
+                }}
               >
                 {tab.label}
               </button>

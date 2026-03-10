@@ -12,7 +12,7 @@ import {
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
 import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp } from "./_llm.js";
-import { getTodayEvents } from "./_calendar.js";
+import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 
 function parseTimeToMinutes(value, fallback) {
   const source = String(value || fallback || "00:00");
@@ -147,7 +147,10 @@ export default async function handler(req, res) {
 
     if (shouldSend(profile, "midday_nudge", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
-      const llmBody = await llmNudge(planState, "midday_nudge", profile).catch(() => null);
+      const calEventsNudge = profile.google_refresh_token
+        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
+        : [];
+      const llmBody = await llmNudge(planState, "midday_nudge", profile, calEventsNudge).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -167,7 +170,10 @@ export default async function handler(req, res) {
 
     if (shouldSend(profile, "afternoon_followup", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
-      const llmBody = await llmNudge(planState, "afternoon_followup", profile).catch(() => null);
+      const calEventsAfternoon = profile.google_refresh_token
+        ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
+        : [];
+      const llmBody = await llmNudge(planState, "afternoon_followup", profile, calEventsAfternoon).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -194,7 +200,10 @@ export default async function handler(req, res) {
       const completedToday = (planState.scoredTasks || []).filter(
         (t) => t.done && t.completedAt && t.completedAt.startsWith(local.dateKey)
       );
-      const llmBody = await llmEveningCheckin(planState, completedToday, profile).catch(() => null);
+      const calEventsEvening = profile.google_refresh_token
+        ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch(() => [])
+        : [];
+      const llmBody = await llmEveningCheckin(planState, completedToday, profile, calEventsEvening).catch(() => null);
       const body = llmBody || buildEveningCheckin({ planState });
       const sent = await sendAndLog({
         userId: profile.userId,
@@ -230,7 +239,10 @@ export default async function handler(req, res) {
           (m) => m.type === "followup" && m.related_task_ids?.includes(avoidedTask.id)
         );
         if (!alreadySent) {
-          const llmBody = await llmFollowUp(avoidedTask, [], profile).catch(() => null);
+          const calEventsFollowup = profile.google_refresh_token
+            ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 2).catch(() => [])
+            : [];
+          const llmBody = await llmFollowUp(avoidedTask, calEventsFollowup, profile).catch(() => null);
           const fallbackBody = `You've postponed "${avoidedTask.title}" ${Number(avoidedTask.reschedule_count || 0)} times. Can you do just 10 minutes on it right now? Reply 'done' or 'archive' if it's no longer needed.`;
           const sent = await sendAndLog({
             userId: profile.userId,

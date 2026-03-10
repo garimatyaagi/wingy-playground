@@ -193,7 +193,7 @@ Rules:
 
 // ─── LLM Evening Check-in ───
 
-export async function llmEveningCheckin(tasks, completedToday = [], profile = {}) {
+export async function llmEveningCheckin(tasks, completedToday = [], profile = {}, calendarEvents = []) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -207,6 +207,10 @@ export async function llmEveningCheckin(tasks, completedToday = [], profile = {}
     })
     .join("\n");
 
+  const calBlock = calendarEvents
+    .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
+    .join("\n");
+
   const prompt = `Write a brief evening check-in message. Tone: ${tone}.
 
 Today's tasks:
@@ -214,9 +218,10 @@ ${taskBlock || "No tasks were scheduled."}
 
 ${completedToday.length} tasks completed today.
 ${overdue.length} tasks are overdue.
-
+${calendarEvents.length > 0 ? `\nToday's calendar:\n${calBlock}\n` : ""}
 Rules:
 - Acknowledge what was completed (celebrate wins)
+- If the day was meeting-heavy, acknowledge it and adjust expectations for task completion
 - For unfinished tasks, ask "done / partial / skipped" for each
 - If tasks were skipped, ask the reason: time issue / avoided / blocked / not needed
 - Ask what the #1 priority for tomorrow should be
@@ -240,7 +245,7 @@ Rules:
 
 // ─── LLM Nudge ───
 
-export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}) {
+export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}, calendarEvents = []) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -253,16 +258,21 @@ export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}
 
   const timeOfDay = messageType === "midday_nudge" ? "midday" : "afternoon";
 
+  const calBlock = calendarEvents
+    .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
+    .join("\n");
+
   const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${tone}.
 
 Top pending task: "${target.title}" (${target.estimatedMinutes || 30}m)
 Times postponed: ${postponed}
 Total remaining tasks: ${top.length} (${totalLeft}m total)
-
+${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}
 Rules:
 - Focus on the #1 task
 - If postponed 2+ times, be more direct about it
 - Suggest a specific time block (e.g. "Start a 20-minute sprint")
+- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it
 - ${timeOfDay === "afternoon" ? "Mention that end of day is approaching" : "Encourage starting now"}
 - Keep under 80 words
 - Plain text only`;
@@ -284,7 +294,7 @@ Rules:
 
 // ─── LLM Follow-up for avoided tasks ───
 
-export async function llmFollowUp(task, history = [], profile = {}) {
+export async function llmFollowUp(task, calendarEvents = [], profile = {}) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -293,16 +303,21 @@ export async function llmFollowUp(task, history = [], profile = {}) {
     (Date.now() - new Date(task.createdAt || Date.now()).getTime()) / 86400000
   );
 
+  const calBlock = calendarEvents
+    .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
+    .join("\n");
+
   const prompt = `Write a targeted follow-up for a task the user keeps avoiding. Tone: ${tone}.
 
 Task: "${task.title}"
 Times postponed: ${postponed}
 Days since created: ${daysSinceCreated}
 Estimated time: ${task.estimatedMinutes || 30} minutes
-
+${calendarEvents.length > 0 ? `\nUpcoming events:\n${calBlock}\n` : ""}
 Rules:
 - Acknowledge the avoidance pattern without being judgmental
 - Suggest breaking it into a tiny first step (5-10 minutes)
+- If there's a gap before the next meeting, suggest using that window for this task
 - Ask if the task is still relevant (maybe it should be archived)
 - Keep under 60 words
 - Plain text only`;

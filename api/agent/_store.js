@@ -142,6 +142,8 @@ function normalizeProfileRow(row = {}) {
     weekendsEnabled: row.weekends_enabled ?? true,
     autoplanEnabled: row.autoplan_enabled ?? true,
     active: row.active ?? true,
+    google_refresh_token: row.google_refresh_token || "",
+    googleCalendarConnected: Boolean(row.google_calendar_connected),
   };
 }
 
@@ -151,7 +153,7 @@ export async function getAgentProfileByUserId(userId) {
   const query = await supabase
     .from("agent_profiles")
     .select(
-      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active"
+      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected"
     )
     .eq("user_id", userId)
     .maybeSingle();
@@ -170,7 +172,7 @@ export async function listActiveProfiles() {
   const query = await supabase
     .from("agent_profiles")
     .select(
-      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active"
+      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected"
     )
     .eq("active", true);
   if (query.error) {

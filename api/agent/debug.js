@@ -25,6 +25,56 @@ export default async function handler(req, res) {
 
   const action = String(req.query?.action || "").trim();
 
+  // Check Twilio message delivery status + account info
+  if (action === "twilio-check") {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_WHATSAPP_FROM || "";
+    if (!accountSid || !authToken) {
+      return res.status(500).json({ error: "Missing Twilio credentials" });
+    }
+    const authHeader = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+    const messageSid = String(req.query?.sid || "").trim();
+
+    // If a specific message SID is provided, check its status
+    if (messageSid) {
+      const msgResp = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${messageSid}.json`,
+        { headers: { Authorization: `Basic ${authHeader}` } }
+      );
+      const msgData = await msgResp.json().catch(() => null);
+      return res.status(200).json({
+        sid: messageSid,
+        status: msgData?.status,
+        errorCode: msgData?.error_code,
+        errorMessage: msgData?.error_message,
+        to: msgData?.to,
+        from: msgData?.from,
+        dateSent: msgData?.date_sent,
+        direction: msgData?.direction,
+      });
+    }
+
+    // Otherwise list recent messages
+    const listResp = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json?PageSize=10`,
+      { headers: { Authorization: `Basic ${authHeader}` } }
+    );
+    const listData = await listResp.json().catch(() => null);
+    const messages = (listData?.messages || []).map((m) => ({
+      sid: m.sid,
+      status: m.status,
+      direction: m.direction,
+      from: m.from,
+      to: m.to,
+      body: (m.body || "").slice(0, 80),
+      errorCode: m.error_code,
+      errorMessage: m.error_message,
+      dateSent: m.date_sent,
+    }));
+    return res.status(200).json({ fromNumber, accountSid: accountSid.slice(0, 8) + "...", messages });
+  }
+
   if (action === "test-create") {
     const userId = String(req.query?.userId || "").trim();
     if (!userId) return res.status(400).json({ error: "Missing userId" });

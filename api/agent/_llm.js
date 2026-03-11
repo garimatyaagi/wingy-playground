@@ -92,7 +92,10 @@ const ParseSchema = {
 // ─── LLM Parse Message ───
 
 export async function llmParseMessage(rawText, contextMessages = [], openTasks = []) {
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("llmParseMessage: no OPENAI_API_KEY");
+    return { _skip: "no_api_key" };
+  }
 
   const taskList = openTasks
     .slice(0, 15)
@@ -111,27 +114,55 @@ export async function llmParseMessage(rawText, contextMessages = [], openTasks =
 The user's open tasks:
 ${taskList || "(none)"}
 
-Recent conversation:
+Recent conversation (newest first):
 ${recentContext || "(none)"}
 
-Parse the user's message and determine their intent. Be smart about context:
-- If they say "done with X" or "finished X" or "completed X", match X to an existing open task (use completionTarget).
-- If they say "move X to tomorrow" or "postpone X", it's a reschedule (rescheduleDays = number of days to push).
-- If they say "cancel X" or "never mind about X" or "drop X", it's cancel_task.
-- If the message contains multiple actions connected by "and", "then", or commas, split into separate tasks in the "tasks" array.
-- If they mention a new action to do, create a task with a clear title, realistic time estimate, and appropriate urgency/importance.
-- "need to", "have to", "gotta", "must", "should" all indicate task creation.
-- If the message is a status update like "meeting went well" or "just got out of gym", it's informational_update.
-- If it's a life reflection, journal entry, or thought — it's a note.
-- If it's a long-term aspiration ("I want to run a marathon") — it's a goal.
-- If ambiguous, set intent to "ambiguous" and provide a followUpQuestion.
+CRITICAL RULES — read carefully:
 
-For due dates, use ISO format (${today}T23:59:00.000Z for today). "tomorrow" = next day. "next week" = 7 days.
+1. TENSE MATTERS:
+   - PAST TENSE = the user DID something. This is NEVER a new task.
+     "I sent the emails" → informational_update (they already did it)
+     "I have sent influencer packages" → informational_update
+     "Finished the report" → complete_task (match to open task)
+     "Called the dentist" → informational_update or complete_task
+     "This is completed" → complete_task
+   - FUTURE/IMPERATIVE = the user WANTS TO DO something. This IS a task.
+     "Send emails to influencers" → create_task
+     "Need to call the dentist" → create_task
+     "Add task: schedule meeting" → create_task
+
+2. META-CONVERSATION is NOT a task:
+   "I want to add more tasks" → ambiguous (ask: "What tasks would you like to add?")
+   "Now I'm going to send you tasks" → ambiguous (ask: "Go ahead, what tasks?")
+   "Hi! I'm sending you tasks" → ambiguous (ask: "Sure, go ahead!")
+
+3. NEGATION / CORRECTION:
+   "No" or "No don't" after a previous action → look at recent conversation context.
+   If the agent just created a task and user says "no this is completed", the user means the previously discussed item is ALREADY DONE = complete_task.
+
+4. COMPLETION SIGNALS (always = complete_task, use completionTarget to match):
+   "done", "done with X", "finished X", "completed X", "X is done", "mark X as done"
+   "I already did X", "I have done X", "X is completed"
+
+5. TASK CREATION SIGNALS:
+   "need to", "have to", "gotta", "must", "should", "remind me to", "add task:"
+   Only if describing a FUTURE action the user has NOT yet done.
+
+6. STATUS UPDATES (= informational_update):
+   "meeting went well", "just got out of gym", "I also did X"
+   Any sentence describing something that ALREADY HAPPENED and doesn't match an open task.
+
+7. RESCHEDULE: "move X to tomorrow", "postpone X", "push X back"
+8. CANCEL/ARCHIVE: "cancel X", "never mind about X", "drop X", "don't need X anymore"
+9. NOTES: life reflections, journal entries, random thoughts
+10. GOALS: long-term aspirations ("I want to run a marathon")
+
+For due dates: ISO format (${today}T23:59:00.000Z for today). "tomorrow" = next day.
 For urgency: 1-5 (5=ASAP). For importance: 1-5 (5=critical).
 For effortType: deep_work, admin, health, call, errand, learning.
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
 For compound tasks, populate the "tasks" array with each individual task.
-If fields don't apply (e.g. completionTarget for create_task), use empty string or 0.`;
+If fields don't apply, use empty string or 0.`;
 
   const input = [
     { role: "system", content: systemPrompt },
@@ -145,7 +176,9 @@ If fields don't apply (e.g. completionTarget for create_task), use empty string 
       text: {
         format: {
           type: "json_schema",
-          json_schema: ParseSchema,
+          name: ParseSchema.name,
+          strict: ParseSchema.strict,
+          schema: ParseSchema.schema,
         },
       },
     });
@@ -153,8 +186,8 @@ If fields don't apply (e.g. completionTarget for create_task), use empty string 
     const cleaned = stripCodeFences((response.output_text || "").trim());
     return JSON.parse(cleaned);
   } catch (err) {
-    console.error("llmParseMessage error:", err.message);
-    return null;
+    console.error("llmParseMessage error:", err.message, err.status, err.code, JSON.stringify(err.error || {}).slice(0, 300));
+    return { _skip: `llm_error:${err.message || "unknown"}`.slice(0, 200) };
   }
 }
 

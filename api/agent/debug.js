@@ -13,9 +13,9 @@ import {
 } from "./_engine.js";
 
 function isDebugAuthorized(req) {
-  const required = process.env.AGENT_DEBUG_KEY || "";
-  if (!required) return true;
-  const supplied = String(req.query?.key || req.headers["x-agent-debug-key"] || "");
+  const required = (process.env.AGENT_DEBUG_KEY || "").trim();
+  if (!required) return false; // Block ALL access if key is not configured
+  const supplied = String(req.query?.key || req.headers["x-agent-debug-key"] || "").trim();
   return supplied === required;
 }
 

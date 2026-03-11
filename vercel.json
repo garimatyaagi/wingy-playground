@@ -5,7 +5,8 @@
   ],
   "functions": {
     "api/agent/whatsapp-webhook.js": { "maxDuration": 30 },
-    "api/agent/scheduler.js": { "maxDuration": 30 }
+    "api/agent/scheduler.js": { "maxDuration": 30 },
+    "api/agent/debug.js": { "maxDuration": 30 }
   },
   "crons": [
     {

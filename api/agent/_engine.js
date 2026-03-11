@@ -442,12 +442,28 @@ export function parseMessageIntent(rawText, now = new Date()) {
     };
   }
 
-  const looksLikeTask = /^(i\s+)?(need|have|got|want|gotta|must|should)\s+(to\s+)?/i.test(text);
+  // Detect explicit task prefix
+  const explicitTaskPrefix = /^add\s+task\s*[:!-]\s*/i.test(text);
+
+  // Past tense = informational update, not a task
+  const pastTenseUpdate = /^i\s+(have\s+)?(already\s+)?(sent|done|finished|completed|called|emailed|submitted|paid|booked|bought|fixed|cleaned|organized|filed|scheduled|met|hired|launched|created|designed|researched)\b/i.test(text)
+    || /\b(is|are|was)\s+(completed|done|finished)\b/i.test(text);
+  if (pastTenseUpdate && !explicitTaskPrefix) {
+    // Check if it matches an open task → complete_task, else informational_update
+    return {
+      intent: "informational_update",
+      confidence: 0.8,
+      noteText: text,
+      tasks: [],
+    };
+  }
+
+  const looksLikeTask = explicitTaskPrefix || /^(i\s+)?(need|have|got|want|gotta|must|should)\s+(to\s+)?/i.test(text);
   if (!isLikelyActionable(text) && !looksLikeTask) {
     return {
       intent: "ambiguous",
       confidence: 0.35,
-      clarificationQuestion: "Do you want me to save this as a task, goal, or note?",
+      clarificationQuestion: "What would you like me to do with this? Reply with a task like 'Finish pitch deck by Friday'.",
       tasks: [],
     };
   }
@@ -499,12 +515,37 @@ export function parseMessageIntent(rawText, now = new Date()) {
 
 export async function parseMessageIntentWithLLM(rawText, userId, now = new Date()) {
   try {
-    const [contextMessages, openTasks] = await Promise.all([
+    const [contextRaw, openTasks] = await Promise.all([
       fetchRecentContext(userId, 15),
       listOpenTasks(userId),
     ]);
 
+    // Merge and format context for the LLM — interleave user messages and agent replies
+    const contextMessages = [
+      ...(contextRaw.recentCaptures || []).map((c) => ({
+        direction: "user",
+        text: c.raw_text || "",
+        intent: c.parsed_intent || "",
+        clarification: c.clarification_requested || false,
+      })),
+      ...(contextRaw.recentMessages || []).map((m) => ({
+        direction: "agent",
+        text: m.body || "",
+        type: m.type || "",
+      })),
+    ].sort((a, b) => {
+      const aDate = a.created_at || a.sent_at || "";
+      const bDate = b.created_at || b.sent_at || "";
+      return aDate < bDate ? 1 : -1; // newest first
+    });
+
     const llmResult = await llmParseMessage(rawText, contextMessages, openTasks);
+    if (llmResult?._skip) {
+      const regexResult = parseMessageIntent(rawText, now);
+      regexResult.parseMethod = "regex_fallback";
+      regexResult._llmError = llmResult._skip;
+      return regexResult;
+    }
     if (llmResult && llmResult.intent) {
       // Convert LLM structured output to the same shape as regex parseMessageIntent
       const result = {
@@ -567,11 +608,16 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
     }
   } catch (err) {
     console.error("parseMessageIntentWithLLM error, falling back to regex:", err.message);
+    const regexResult = parseMessageIntent(rawText, now);
+    regexResult.parseMethod = "regex_fallback";
+    regexResult._llmError = err.message;
+    return regexResult;
   }
 
-  // Fallback to regex-based parser
+  // Fallback to regex-based parser (LLM returned null)
   const regexResult = parseMessageIntent(rawText, now);
   regexResult.parseMethod = "regex_fallback";
+  regexResult._llmError = "llm_returned_null";
   return regexResult;
 }
 

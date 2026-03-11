@@ -119,6 +119,73 @@ export default async function handler(req, res) {
       return res.status(200).send(twimlMessage(welcomeReply));
     }
 
+    // ─── Pre-LLM keyword shortcuts for common patterns ───
+    const lower = rawText.toLowerCase().trim();
+
+    // "Add task: X" — skip LLM, create directly
+    const addTaskMatch = rawText.match(/^add\s+task\s*[:!-]\s*(.+)/i);
+    if (addTaskMatch) {
+      const title = addTaskMatch[1].trim();
+      const created = await createTaskStep(userId, {
+        title,
+        normalizedTitle: title.toLowerCase(),
+        rawSourceText: rawText,
+        estimatedMinutes: 30,
+        urgency: 3,
+        importance: 3,
+        effortType: "deep_work",
+        source: "whatsapp",
+        aiConfidence: 1,
+        goalName: "General",
+        status: "open",
+      });
+      const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+      const replyText = created?.id
+        ? `Added: "${title}".${planNextLine(nextPlan)}`
+        : "Could not save that task. Please try again.";
+      await updateMessageCapture(captureId, {
+        parsedIntent: "create_task", parseConfidence: 1, parseMethod: "keyword",
+        parseDurationMs: 0, processed: true,
+        createdTaskIds: created?.id ? [created.id] : [], updatedTaskIds: [],
+        clarificationRequested: false, processingResult: created?.id ? "task_created" : "create_failed",
+      });
+      await logAgentMessage({ userId, type: "ack", body: replyText, relatedTaskIds: created?.id ? [created.id] : [], metadata: { source: "whatsapp-webhook", intent: "create_task", result: created?.id ? "task_created" : "create_failed" } });
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(replyText));
+    }
+
+    // "Done" / "Done with X" / "Completed X" / "Finished X" — quick completion
+    const doneMatch = rawText.match(/^(?:done|finished|completed|✅)\s*(?:with\s+)?[:!-]?\s*(.+)?/i);
+    if (doneMatch) {
+      const target = (doneMatch[1] || "").trim();
+      const ctx = await buildMessageContext(userId, new Date());
+      const match = resolveTaskMatch({
+        targetText: target || (ctx.openTasks[0]?.title || ""),
+        openTasks: ctx.openTasks,
+        preferredTaskIds: ctx.preferredTaskIds,
+        lastNudgedTaskId: ctx.lastNudgedTaskId,
+      });
+      if (match.status === "matched" && match.task) {
+        const nowIso = new Date().toISOString();
+        await updateTaskStep(match.task.id, match.task.goalId, {
+          ...match.task, done: true, status: "done", completedAt: nowIso, completionConfidence: 1,
+        });
+        await logTaskEvent(match.task.id, "completed", { source: "whatsapp", rawText });
+        const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+        const replyText = `Marked "${match.task.title}" as done.${planNextLine(nextPlan)}`;
+        await updateMessageCapture(captureId, {
+          parsedIntent: "complete_task", parseConfidence: 1, parseMethod: "keyword",
+          parseDurationMs: 0, processed: true,
+          createdTaskIds: [], updatedTaskIds: [match.task.id],
+          clarificationRequested: false, processingResult: "task_completed",
+        });
+        await logAgentMessage({ userId, type: "ack", body: replyText, relatedTaskIds: [match.task.id], metadata: { source: "whatsapp-webhook", intent: "complete_task", result: "task_completed" } });
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(replyText));
+      }
+      // Fall through to LLM if no match
+    }
+
     const parseStart = Date.now();
     const intent = await parseMessageIntentWithLLM(rawText, userId, new Date());
     const parseDurationMs = Date.now() - parseStart;
@@ -340,7 +407,7 @@ export default async function handler(req, res) {
       result = "clarification_requested";
       reply =
         intent.clarificationQuestion ||
-        "I need one detail: what exact action should I create or update?";
+        "I'm not sure what to do with that. Try:\n• 'Add task: <your task>'\n• 'Done with <task name>'\n• Or just tell me what you need to get done.";
       await logParsedAction({ captureId, userId, actionType: "ambiguous", actionPayload: { question: reply }, result, confidence: intent.confidence });
     }
 

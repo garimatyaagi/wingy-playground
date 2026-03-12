@@ -4,6 +4,7 @@ import {
   fetchLastUserCapture,
   findCaptureByMessageSid,
   findOrCreateGoal,
+  getAgentProfileByUserId,
   logAgentMessage,
   logMessageCapture,
   logParsedAction,
@@ -16,9 +17,9 @@ import {
 } from "./_store.js";
 import {
   buildMessageContext,
-  parseMessageIntent,
+  buildRichResponse,
+  parseEveningResponse,
   parseMessageIntentWithLLM,
-  recomputeDailyPlan,
   resolveTaskMatch,
 } from "./_engine.js";
 import {
@@ -26,6 +27,7 @@ import {
   twimlMessage,
   validateTwilioSignature,
 } from "./_twilio.js";
+import { getUpcomingEvents } from "./_calendar.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";
@@ -39,10 +41,15 @@ function formatClarification(options = []) {
   return `Which one did you finish: ${names.join(", ")}?`;
 }
 
-function planNextLine(planState) {
-  const next = planState?.nextBest;
-  if (!next) return "";
-  return ` Next priority: ${next.title}.`;
+// Fetch calendar events for response context (returns [] if unavailable)
+async function fetchCalendarContext(userId) {
+  try {
+    const profile = await getAgentProfileByUserId(userId);
+    if (!profile?.google_refresh_token) return [];
+    return await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 4);
+  } catch {
+    return [];
+  }
 }
 
 export default async function handler(req, res) {
@@ -155,9 +162,10 @@ export default async function handler(req, res) {
         goalName: "General",
         status: "open",
       });
-      const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+      const ctx = await buildMessageContext(userId, new Date());
+      const calendarEvents = await fetchCalendarContext(userId);
       const replyText = created?.id
-        ? `Added: "${title}".${planNextLine(nextPlan)}`
+        ? buildRichResponse([{ type: "task_created", task: { title, id: created.id } }], ctx, calendarEvents)
         : "Could not save that task. Please try again.";
       await updateMessageCapture(captureId, {
         parsedIntent: "create_task", parseConfidence: 1, parseMethod: "keyword",
@@ -187,8 +195,10 @@ export default async function handler(req, res) {
           ...match.task, done: true, status: "done", completedAt: nowIso, completionConfidence: 1,
         });
         await logTaskEvent(match.task.id, "completed", { source: "whatsapp", rawText });
-        const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
-        const replyText = `Marked "${match.task.title}" as done.${planNextLine(nextPlan)}`;
+        // Rebuild context after completion for accurate state
+        const freshCtx = await buildMessageContext(userId, new Date());
+        const calendarEvents = await fetchCalendarContext(userId);
+        const replyText = buildRichResponse([{ type: "task_completed", task: match.task }], freshCtx, calendarEvents);
         await updateMessageCapture(captureId, {
           parsedIntent: "complete_task", parseConfidence: 1, parseMethod: "keyword",
           parseDurationMs: 0, processed: true,
@@ -208,17 +218,93 @@ export default async function handler(req, res) {
     const botAskedWhatTask = botJustAskedClarification && /what\s+task/i.test(lastBotMsg.body || "");
     const botAskedClarifyOrConfirm = botJustAskedClarification && /clarify|do you want|would you like/i.test(lastBotMsg.body || "");
 
+    // ─── Evening checkin response detection ───
+    // If the last bot message was an evening_checkin, treat user reply as evening feedback
+    if (lastBotMsg?.type === "evening_checkin") {
+      const ctx = await buildMessageContext(userId, new Date());
+      const topTitles = (ctx.dueTodayTasks || ctx.openTasks || []).slice(0, 5).map((t) => t.title);
+      const eveningResults = parseEveningResponse(rawText, topTitles);
+
+      if (eveningResults) {
+        const topTasks = (ctx.dueTodayTasks || ctx.openTasks || []).slice(0, 5);
+        const actionsTaken = [];
+        const updatedIds = [];
+
+        for (const result of eveningResults) {
+          const task = topTasks[result.index];
+          if (!task) continue;
+
+          if (result.status === "done") {
+            const nowIso = new Date().toISOString();
+            if (task.isRecurring) {
+              await saveTaskOccurrence({
+                parentTaskId: task.id,
+                date: new Date().toISOString().slice(0, 10),
+                status: "completed",
+                actualMinutes: Number(task.estimatedMinutes || 20),
+                skipped: false,
+                completedAt: nowIso,
+              });
+            } else {
+              await updateTaskStep(task.id, task.goalId, {
+                ...task, done: true, status: "done", completedAt: nowIso, completionConfidence: 0.9,
+              });
+            }
+            await logTaskEvent(task.id, "completed", { source: "whatsapp", rawText, via: "evening_checkin" });
+            actionsTaken.push({ type: "task_completed", task });
+            updatedIds.push(task.id);
+          } else if (result.status === "skipped") {
+            // Auto-reschedule to tomorrow
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowIso = tomorrow.toISOString();
+            if (!task.isRecurring) {
+              await updateTaskStep(task.id, task.goalId, {
+                ...task, dueDate: tomorrowIso, scheduledDate: tomorrowIso,
+                rescheduleCount: Number(task.rescheduleCount || 0) + 1,
+              });
+            }
+            await logTaskEvent(task.id, "snoozed", { source: "whatsapp", via: "evening_checkin", reason: "skipped" });
+            actionsTaken.push({ type: "task_rescheduled", task, newDate: tomorrowIso });
+            updatedIds.push(task.id);
+          }
+          // "partial" — keep as-is, just acknowledge
+          if (result.status === "partial") {
+            actionsTaken.push({ type: "update_noted" });
+          }
+        }
+
+        const doneCount = actionsTaken.filter((a) => a.type === "task_completed").length;
+        const skippedCount = actionsTaken.filter((a) => a.type === "task_rescheduled").length;
+        const partialCount = actionsTaken.filter((a) => a.type === "update_noted").length;
+
+        const replyLines = [];
+        if (doneCount > 0) replyLines.push(`${doneCount} task${doneCount > 1 ? "s" : ""} completed.`);
+        if (skippedCount > 0) replyLines.push(`${skippedCount} carried over to tomorrow.`);
+        if (partialCount > 0) replyLines.push(`${partialCount} in progress.`);
+        replyLines.push("What's your #1 priority for tomorrow?");
+        const reply = replyLines.join("\n");
+
+        await updateMessageCapture(captureId, {
+          parsedIntent: "evening_response", parseConfidence: 0.9, parseMethod: "evening_parser",
+          parseDurationMs: 0, processed: true,
+          createdTaskIds: [], updatedTaskIds: updatedIds,
+          clarificationRequested: false, processingResult: "evening_processed",
+        });
+        await logAgentMessage({ userId, type: "ack", body: reply, relatedTaskIds: updatedIds, metadata: { source: "whatsapp-webhook", intent: "evening_response", result: "evening_processed" } });
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(reply));
+      }
+      // If parseEveningResponse returned null, fall through to LLM
+    }
+
     // If bot asked "what task?" and user responds with something actionable, create it directly
     if (botAskedWhatTask) {
-      // User says "Yes add a task" / "Yes" — they're confirming, but we need the actual task
       const yesMatch = rawText.match(/^(?:yes|yeah|yep|yup|ya|sure|ok)\s*,?\s*(.+)?$/i);
       const afterYes = yesMatch ? (yesMatch[1] || "").trim() : "";
-      // If "yes add a task" or just "yes" — still no task title, ask again
       if (yesMatch && (!afterYes || /^add\s+a?\s*tasks?$/i.test(afterYes))) {
-        // Try to find the task mentioned in the previous user message
         const prevCapture = await fetchLastUserCapture(userId);
         const prevText = (prevCapture?.raw_text || "").trim();
-        // If the previous user message had actual content (not "add a task" or "yes"), use it
         if (prevText && !/^(?:yes|add\s+a?\s*tasks?|task)$/i.test(prevText.toLowerCase())) {
           const title = prevText;
           const created = await createTaskStep(userId, {
@@ -226,9 +312,10 @@ export default async function handler(req, res) {
             estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
             source: "whatsapp", aiConfidence: 0.9, goalName: "General", status: "open",
           });
-          const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+          const ctx = await buildMessageContext(userId, new Date());
+          const calendarEvents = await fetchCalendarContext(userId);
           const replyText = created?.id
-            ? `Added: "${title}".${planNextLine(nextPlan)}`
+            ? buildRichResponse([{ type: "task_created", task: { title, id: created.id } }], ctx, calendarEvents)
             : "Could not save that task. Please try again.";
           await updateMessageCapture(captureId, {
             parsedIntent: "create_task", parseConfidence: 0.9, parseMethod: "clarification_followup",
@@ -240,9 +327,7 @@ export default async function handler(req, res) {
           res.setHeader("Content-Type", "text/xml");
           return res.status(200).send(twimlMessage(replyText));
         }
-        // else: no recoverable context, fall through to LLM
       } else if (!yesMatch) {
-        // User replied with a direct phrase (not "yes") — this IS the task title
         const title = rawText.trim();
         if (title.length > 2 && title.length < 200) {
           const created = await createTaskStep(userId, {
@@ -250,9 +335,10 @@ export default async function handler(req, res) {
             estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
             source: "whatsapp", aiConfidence: 0.9, goalName: "General", status: "open",
           });
-          const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+          const ctx = await buildMessageContext(userId, new Date());
+          const calendarEvents = await fetchCalendarContext(userId);
           const replyText = created?.id
-            ? `Added: "${title}".${planNextLine(nextPlan)}`
+            ? buildRichResponse([{ type: "task_created", task: { title, id: created.id } }], ctx, calendarEvents)
             : "Could not save that task. Please try again.";
           await updateMessageCapture(captureId, {
             parsedIntent: "create_task", parseConfidence: 0.9, parseMethod: "clarification_followup",
@@ -269,7 +355,6 @@ export default async function handler(req, res) {
 
     // If bot asked "do you want to create a task?" and user says "yes" — create it from context
     if (botAskedClarifyOrConfirm && /^(?:yes|yeah|yep|yup|ya|sure|ok)/i.test(lower)) {
-      // Extract what the clarification was about from the bot's last message
       const aboutMatch = (lastBotMsg.body || "").match(/(?:create a task (?:for|related to|about) |mean by ')(.+?)(?:'|\?|,|$)/i);
       const taskFromContext = aboutMatch ? aboutMatch[1].trim() : null;
       if (taskFromContext) {
@@ -279,9 +364,10 @@ export default async function handler(req, res) {
           estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
           source: "whatsapp", aiConfidence: 0.85, goalName: "General", status: "open",
         });
-        const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+        const ctx = await buildMessageContext(userId, new Date());
+        const calendarEvents = await fetchCalendarContext(userId);
         const replyText = created?.id
-          ? `Added: "${title}".${planNextLine(nextPlan)}`
+          ? buildRichResponse([{ type: "task_created", task: { title, id: created.id } }], ctx, calendarEvents)
           : "Could not save that task. Please try again.";
         await updateMessageCapture(captureId, {
           parsedIntent: "create_task", parseConfidence: 0.85, parseMethod: "clarification_followup",
@@ -295,241 +381,229 @@ export default async function handler(req, res) {
       }
     }
 
+    // ─── LLM Parse + Multi-Action Loop ───
+
     const parseStart = Date.now();
-    const intent = await parseMessageIntentWithLLM(rawText, userId, new Date());
+    const parsedResult = await parseMessageIntentWithLLM(rawText, userId, new Date());
     const parseDurationMs = Date.now() - parseStart;
     const ctx = await buildMessageContext(userId, new Date());
+    const calendarEvents = await fetchCalendarContext(userId);
     const openTasks = ctx.openTasks;
     const preferredTaskIds = ctx.preferredTaskIds;
     const lastNudgedTaskId = ctx.lastNudgedTaskId;
 
     const createdTaskIds = [];
     const updatedTaskIds = [];
+    const actionsTaken = [];
     let clarificationRequested = false;
     let result = "noop";
-    let reply = "Captured.";
+    let primaryIntent = "ambiguous";
 
-    if (intent.intent === "create_task" || intent.intent === "create_recurring_task") {
-      for (const draft of intent.tasks || []) {
-        const created = await createTaskStep(userId, draft);
-        if (!created?.id) {
-          await logParsedAction({ captureId, userId, actionType: "create_task", actionPayload: draft, result: "failed", errorDetail: "createTaskStep returned null", confidence: intent.confidence });
-          continue;
-        }
-        createdTaskIds.push(created.id);
-        await logTaskEvent(created.id, "created", {
-          source: "whatsapp",
-          rawText,
-          parseConfidence: intent.confidence,
-          recurring: Boolean(draft.isRecurring),
-        });
-        await logParsedAction({ captureId, userId, actionType: "create_task", actionPayload: { title: draft.title }, targetTaskId: created.id, result: "created", confidence: intent.confidence });
-      }
-      if (createdTaskIds.length === 0) {
-        clarificationRequested = true;
-        result = "create_failed";
-        reply = "I understood this as a task, but could not save it. Please resend with a shorter action line.";
-      } else {
-        const nextPlan = await recomputeDailyPlan({
-          userId,
-          dailyCapacityMinutes: 180,
-        });
-        result = "task_created";
-        reply = `Added ${createdTaskIds.length} task${createdTaskIds.length === 1 ? "" : "s"}.${planNextLine(nextPlan)}`;
-      }
-    } else if (intent.intent === "goal") {
-      const goal = await findOrCreateGoal(userId, intent.goalTitle || "General");
-      result = goal?.id ? "goal_created" : "goal_failed";
-      await logParsedAction({ captureId, userId, actionType: "create_goal", actionPayload: { goalTitle: intent.goalTitle }, targetTaskId: goal?.id, result, confidence: intent.confidence });
-      if (goal?.id) {
-        reply = `Captured goal: ${goal.title}.`;
-      } else {
-        clarificationRequested = true;
-        reply = "I could not save that goal yet. Please try a shorter goal title.";
-      }
-    } else if (intent.intent === "note" || intent.intent === "informational_update") {
-      await saveAgentNote({
-        userId,
-        text: intent.noteText || rawText,
-        rawText,
-      });
-      result = intent.intent === "informational_update" ? "update_noted" : "note_saved";
-      reply = intent.intent === "informational_update"
-        ? "Noted."
-        : "Saved as note. It will not clutter your active priorities.";
-      await logParsedAction({ captureId, userId, actionType: intent.intent, actionPayload: { text: (intent.noteText || rawText).slice(0, 200) }, result, confidence: intent.confidence });
-    } else if (intent.intent === "complete_task") {
-      // If completionTarget looks like a date or is empty, use rawText instead
-      let completionTarget = intent.completionTarget || rawText;
-      if (/^\d{4}-\d{2}-\d{2}/.test(completionTarget) || completionTarget.length < 3) {
-        completionTarget = rawText;
-      }
-      const match = resolveTaskMatch({
-        targetText: completionTarget,
-        openTasks,
-        preferredTaskIds,
-        lastNudgedTaskId,
-      });
-      if (match.status === "matched" && match.task) {
-        const nowIso = new Date().toISOString();
-        if (match.task.isRecurring) {
-          await saveTaskOccurrence({
-            parentTaskId: match.task.id,
-            date: new Date().toISOString().slice(0, 10),
-            status: "completed",
-            actualMinutes: Number(match.task.estimatedMinutes || 20),
-            skipped: false,
-            completedAt: nowIso,
-          });
-          await logTaskEvent(match.task.id, "completed", {
+    // Process each action from the LLM result
+    const actions = parsedResult.actions || [];
+
+    for (const action of actions) {
+      primaryIntent = action.intent; // track last intent for logging
+
+      if (action.intent === "create_task" || action.intent === "create_recurring_task") {
+        for (const draft of action.tasks || []) {
+          const created = await createTaskStep(userId, draft);
+          if (!created?.id) {
+            await logParsedAction({ captureId, userId, actionType: "create_task", actionPayload: draft, result: "failed", errorDetail: "createTaskStep returned null", confidence: parsedResult.confidence });
+            continue;
+          }
+          createdTaskIds.push(created.id);
+          await logTaskEvent(created.id, "created", {
             source: "whatsapp",
-            kind: "recurring_occurrence",
             rawText,
-            confidence: intent.confidence,
+            parseConfidence: parsedResult.confidence,
+            recurring: Boolean(draft.isRecurring),
           });
+          await logParsedAction({ captureId, userId, actionType: "create_task", actionPayload: { title: draft.title }, targetTaskId: created.id, result: "created", confidence: parsedResult.confidence });
+          actionsTaken.push({ type: "task_created", task: { title: draft.title, id: created.id } });
+        }
+        if (createdTaskIds.length === 0 && actionsTaken.length === 0) {
+          clarificationRequested = true;
+          result = "create_failed";
+          actionsTaken.push({ type: "error", message: "I understood this as a task, but could not save it. Please resend with a shorter action line." });
+        }
+
+      } else if (action.intent === "goal") {
+        const goal = await findOrCreateGoal(userId, action.goalTitle || "General");
+        const goalResult = goal?.id ? "goal_created" : "goal_failed";
+        await logParsedAction({ captureId, userId, actionType: "create_goal", actionPayload: { goalTitle: action.goalTitle }, targetTaskId: goal?.id, result: goalResult, confidence: parsedResult.confidence });
+        if (goal?.id) {
+          actionsTaken.push({ type: "goal_created", goal: { title: goal.title, id: goal.id } });
         } else {
-          const update = await updateTaskStep(match.task.id, match.task.goalId, {
-            ...match.task,
-            done: true,
-            status: "done",
-            completedAt: nowIso,
-            completionConfidence: intent.confidence,
-          });
-          if (!update.ok) {
-            clarificationRequested = true;
-            result = "complete_failed";
-            reply = "I found the task but could not mark it complete. Please retry.";
-          } else {
+          clarificationRequested = true;
+          actionsTaken.push({ type: "error", message: "I could not save that goal yet. Please try a shorter goal title." });
+        }
+
+      } else if (action.intent === "note" || action.intent === "informational_update") {
+        await saveAgentNote({ userId, text: action.noteText || rawText, rawText });
+        const noteResult = action.intent === "informational_update" ? "update_noted" : "note_saved";
+        await logParsedAction({ captureId, userId, actionType: action.intent, actionPayload: { text: (action.noteText || rawText).slice(0, 200) }, result: noteResult, confidence: parsedResult.confidence });
+        actionsTaken.push({ type: noteResult });
+
+      } else if (action.intent === "complete_task") {
+        let completionTarget = action.completionTarget || rawText;
+        if (/^\d{4}-\d{2}-\d{2}/.test(completionTarget) || completionTarget.length < 3) {
+          completionTarget = rawText;
+        }
+        const match = resolveTaskMatch({
+          targetText: completionTarget,
+          openTasks,
+          preferredTaskIds,
+          lastNudgedTaskId,
+        });
+        if (match.status === "matched" && match.task) {
+          const nowIso = new Date().toISOString();
+          if (match.task.isRecurring) {
+            await saveTaskOccurrence({
+              parentTaskId: match.task.id,
+              date: new Date().toISOString().slice(0, 10),
+              status: "completed",
+              actualMinutes: Number(match.task.estimatedMinutes || 20),
+              skipped: false,
+              completedAt: nowIso,
+            });
             await logTaskEvent(match.task.id, "completed", {
-              source: "whatsapp",
-              rawText,
-              confidence: intent.confidence,
+              source: "whatsapp", kind: "recurring_occurrence", rawText, confidence: parsedResult.confidence,
+            });
+          } else {
+            const update = await updateTaskStep(match.task.id, match.task.goalId, {
+              ...match.task, done: true, status: "done", completedAt: nowIso, completionConfidence: parsedResult.confidence,
+            });
+            if (!update.ok) {
+              clarificationRequested = true;
+              actionsTaken.push({ type: "error", message: "I found the task but could not mark it complete. Please retry." });
+              await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { matchStrategy: match.strategy }, targetTaskId: match.task.id, result: "complete_failed", confidence: parsedResult.confidence });
+              continue;
+            }
+            await logTaskEvent(match.task.id, "completed", {
+              source: "whatsapp", rawText, confidence: parsedResult.confidence,
             });
           }
-        }
-        updatedTaskIds.push(match.task.id);
-        if (!clarificationRequested) {
-          const nextPlan = await recomputeDailyPlan({
-            userId,
-            dailyCapacityMinutes: 180,
-          });
-          result = "task_completed";
-          reply = `Marked "${match.task.title}" as done.${planNextLine(nextPlan)}`;
-        }
-        await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { matchStrategy: match.strategy }, targetTaskId: match.task.id, result, confidence: intent.confidence });
-      } else if (match.status === "ambiguous") {
-        clarificationRequested = true;
-        result = "completion_ambiguous";
-        reply = formatClarification(match.options);
-        await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { target: intent.completionTarget, ambiguousOptions: (match.options || []).map((t) => t.id) }, result, confidence: intent.confidence });
-      } else {
-        clarificationRequested = true;
-        result = "completion_not_found";
-        reply = "I could not find the task you completed. Reply with the task name.";
-        await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { target: intent.completionTarget }, result, confidence: intent.confidence });
-      }
-    } else if (intent.intent === "reschedule_task") {
-      const match = resolveTaskMatch({
-        targetText: intent.completionTarget || rawText,
-        openTasks,
-        preferredTaskIds,
-        lastNudgedTaskId,
-      });
-      if (match.status === "matched" && match.task) {
-        const nextDate = new Date();
-        nextDate.setDate(nextDate.getDate() + Math.max(1, Number(intent.rescheduleDays || 1)));
-        const nextIso = nextDate.toISOString();
-        if (match.task.isRecurring) {
-          await saveTaskOccurrence({
-            parentTaskId: match.task.id,
-            date: new Date().toISOString().slice(0, 10),
-            status: "pending",
-            skipped: true,
-            rescheduledTo: nextIso.slice(0, 10),
-          });
+          updatedTaskIds.push(match.task.id);
+          actionsTaken.push({ type: "task_completed", task: match.task });
+          await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { matchStrategy: match.strategy }, targetTaskId: match.task.id, result: "task_completed", confidence: parsedResult.confidence });
+        } else if (match.status === "ambiguous") {
+          clarificationRequested = true;
+          actionsTaken.push({ type: "clarification", question: formatClarification(match.options) });
+          await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { target: action.completionTarget, ambiguousOptions: (match.options || []).map((t) => t.id) }, result: "completion_ambiguous", confidence: parsedResult.confidence });
         } else {
-          await updateTaskStep(match.task.id, match.task.goalId, {
-            ...match.task,
-            done: false,
-            status: "active",
-            dueDate: nextIso,
-            scheduledDate: nextIso,
-            rescheduleCount: Number(match.task.rescheduleCount || 0) + 1,
-          });
+          clarificationRequested = true;
+          actionsTaken.push({ type: "clarification", question: "I could not find the task you completed. Reply with the task name." });
+          await logParsedAction({ captureId, userId, actionType: "complete_task", actionPayload: { target: action.completionTarget }, result: "completion_not_found", confidence: parsedResult.confidence });
         }
-        updatedTaskIds.push(match.task.id);
-        await logTaskEvent(match.task.id, "snoozed", {
-          source: "whatsapp",
-          rawText,
-          rescheduleDays: intent.rescheduleDays || 1,
+
+      } else if (action.intent === "reschedule_task") {
+        const match = resolveTaskMatch({
+          targetText: action.completionTarget || rawText,
+          openTasks,
+          preferredTaskIds,
+          lastNudgedTaskId,
         });
-        const nextPlan = await recomputeDailyPlan({
-          userId,
-          dailyCapacityMinutes: 180,
+        if (match.status === "matched" && match.task) {
+          const nextDate = new Date();
+          nextDate.setDate(nextDate.getDate() + Math.max(1, Number(action.rescheduleDays || 1)));
+          const nextIso = nextDate.toISOString();
+          if (match.task.isRecurring) {
+            await saveTaskOccurrence({
+              parentTaskId: match.task.id,
+              date: new Date().toISOString().slice(0, 10),
+              status: "pending",
+              skipped: true,
+              rescheduledTo: nextIso.slice(0, 10),
+            });
+          } else {
+            await updateTaskStep(match.task.id, match.task.goalId, {
+              ...match.task, done: false, status: "active",
+              dueDate: nextIso, scheduledDate: nextIso,
+              rescheduleCount: Number(match.task.rescheduleCount || 0) + 1,
+            });
+          }
+          updatedTaskIds.push(match.task.id);
+          await logTaskEvent(match.task.id, "snoozed", {
+            source: "whatsapp", rawText, rescheduleDays: action.rescheduleDays || 1,
+          });
+          actionsTaken.push({ type: "task_rescheduled", task: match.task, newDate: nextIso });
+          await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { days: action.rescheduleDays }, targetTaskId: match.task.id, result: "task_rescheduled", confidence: parsedResult.confidence });
+        } else if (match.status === "ambiguous") {
+          clarificationRequested = true;
+          actionsTaken.push({ type: "clarification", question: formatClarification(match.options) });
+          await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { target: action.completionTarget }, result: "reschedule_ambiguous", confidence: parsedResult.confidence });
+        } else {
+          clarificationRequested = true;
+          actionsTaken.push({ type: "clarification", question: "Which task should I reschedule?" });
+          await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { target: action.completionTarget }, result: "reschedule_not_found", confidence: parsedResult.confidence });
+        }
+
+      } else if (action.intent === "archive_task" || action.intent === "cancel_task") {
+        const match = resolveTaskMatch({
+          targetText: action.completionTarget || rawText,
+          openTasks,
+          preferredTaskIds,
+          lastNudgedTaskId,
         });
-        result = "task_rescheduled";
-        reply = `Rescheduled "${match.task.title}" to ${nextIso.slice(0, 10)}.${planNextLine(nextPlan)}`;
-        await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { days: intent.rescheduleDays }, targetTaskId: match.task.id, result, confidence: intent.confidence });
-      } else if (match.status === "ambiguous") {
-        clarificationRequested = true;
-        result = "reschedule_ambiguous";
-        reply = formatClarification(match.options);
-        await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { target: intent.completionTarget }, result, confidence: intent.confidence });
+        const isCancellation = action.intent === "cancel_task";
+        const targetStatus = isCancellation ? "cancelled" : "archived";
+        if (match.status === "matched" && match.task) {
+          await updateTaskStep(match.task.id, match.task.goalId, {
+            ...match.task, done: false, status: targetStatus,
+          });
+          updatedTaskIds.push(match.task.id);
+          await logTaskEvent(match.task.id, targetStatus, { source: "whatsapp", rawText });
+          actionsTaken.push({ type: isCancellation ? "task_cancelled" : "task_archived", task: match.task });
+          await logParsedAction({ captureId, userId, actionType: action.intent, targetTaskId: match.task.id, result: isCancellation ? "task_cancelled" : "task_archived", confidence: parsedResult.confidence });
+        } else {
+          clarificationRequested = true;
+          const q = isCancellation ? "Which task should I cancel?" : "Which task should I archive?";
+          actionsTaken.push({ type: "clarification", question: q });
+          await logParsedAction({ captureId, userId, actionType: action.intent, actionPayload: { target: action.completionTarget }, result: isCancellation ? "cancel_needs_target" : "archive_needs_target", confidence: parsedResult.confidence });
+        }
+
       } else {
+        // ambiguous or unknown intent
         clarificationRequested = true;
-        result = "reschedule_not_found";
-        reply = "Which task should I reschedule?";
-        await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { target: intent.completionTarget }, result, confidence: intent.confidence });
+        const question = action.clarificationQuestion || parsedResult.followUpQuestion ||
+          "I'm not sure what to do with that. Try:\n• 'Add task: <your task>'\n• 'Done with <task name>'\n• Or just tell me what you need to get done.";
+        actionsTaken.push({ type: "clarification", question });
+        await logParsedAction({ captureId, userId, actionType: "ambiguous", actionPayload: { question }, result: "clarification_requested", confidence: parsedResult.confidence });
       }
-    } else if (intent.intent === "archive_task" || intent.intent === "cancel_task") {
-      const match = resolveTaskMatch({
-        targetText: intent.completionTarget || rawText,
-        openTasks,
-        preferredTaskIds,
-        lastNudgedTaskId,
-      });
-      const isCancellation = intent.intent === "cancel_task";
-      const targetStatus = isCancellation ? "cancelled" : "archived";
-      if (match.status === "matched" && match.task) {
-        await updateTaskStep(match.task.id, match.task.goalId, {
-          ...match.task,
-          done: false,
-          status: targetStatus,
-        });
-        updatedTaskIds.push(match.task.id);
-        await logTaskEvent(match.task.id, targetStatus, {
-          source: "whatsapp",
-          rawText,
-        });
-        const nextPlan = await recomputeDailyPlan({
-          userId,
-          dailyCapacityMinutes: 180,
-        });
-        result = isCancellation ? "task_cancelled" : "task_archived";
-        reply = isCancellation
-          ? `Cancelled "${match.task.title}".${planNextLine(nextPlan)}`
-          : `Archived "${match.task.title}".${planNextLine(nextPlan)}`;
-        await logParsedAction({ captureId, userId, actionType: intent.intent, targetTaskId: match.task.id, result, confidence: intent.confidence });
-      } else {
-        clarificationRequested = true;
-        result = isCancellation ? "cancel_needs_target" : "archive_needs_target";
-        reply = isCancellation ? "Which task should I cancel?" : "Which task should I archive?";
-        await logParsedAction({ captureId, userId, actionType: intent.intent, actionPayload: { target: intent.completionTarget }, result, confidence: intent.confidence });
-      }
-    } else {
-      clarificationRequested = true;
-      result = "clarification_requested";
-      reply =
-        intent.clarificationQuestion ||
-        "I'm not sure what to do with that. Try:\n• 'Add task: <your task>'\n• 'Done with <task name>'\n• Or just tell me what you need to get done.";
-      await logParsedAction({ captureId, userId, actionType: "ambiguous", actionPayload: { question: reply }, result, confidence: intent.confidence });
     }
+
+    // Determine processing result from actionsTaken
+    if (createdTaskIds.length > 0 && updatedTaskIds.length > 0) {
+      result = "multi_action";
+    } else if (createdTaskIds.length > 0) {
+      result = "task_created";
+    } else if (updatedTaskIds.length > 0) {
+      result = actionsTaken.some((a) => a.type === "task_completed") ? "task_completed"
+        : actionsTaken.some((a) => a.type === "task_rescheduled") ? "task_rescheduled"
+        : actionsTaken.some((a) => a.type === "task_cancelled") ? "task_cancelled"
+        : actionsTaken.some((a) => a.type === "task_archived") ? "task_archived"
+        : "task_updated";
+    } else if (actionsTaken.some((a) => a.type === "note_saved" || a.type === "update_noted")) {
+      result = actionsTaken.some((a) => a.type === "update_noted") ? "update_noted" : "note_saved";
+    } else if (actionsTaken.some((a) => a.type === "goal_created")) {
+      result = "goal_created";
+    } else if (clarificationRequested) {
+      result = "clarification_requested";
+    }
+
+    // Rebuild context after mutations for accurate rich response
+    const freshCtx = (createdTaskIds.length > 0 || updatedTaskIds.length > 0)
+      ? await buildMessageContext(userId, new Date())
+      : ctx;
+
+    const reply = buildRichResponse(actionsTaken, freshCtx, calendarEvents);
 
     if (captureId) {
       await updateMessageCapture(captureId, {
-        parsedIntent: intent.intent,
-        parseConfidence: intent.confidence,
-        parseMethod: intent.parseMethod || "llm",
+        parsedIntent: actions.length === 1 ? primaryIntent : `multi:${actions.map((a) => a.intent).join("+")}`,
+        parseConfidence: parsedResult.confidence,
+        parseMethod: parsedResult.parseMethod || "llm",
         parseDurationMs,
         processed: true,
         createdTaskIds,
@@ -546,7 +620,8 @@ export default async function handler(req, res) {
       relatedTaskIds: [...createdTaskIds, ...updatedTaskIds],
       metadata: {
         source: "whatsapp-webhook",
-        intent: intent.intent,
+        intent: actions.length === 1 ? primaryIntent : `multi:${actions.map((a) => a.intent).join("+")}`,
+        actionCount: actions.length,
         result,
       },
     });
@@ -555,7 +630,7 @@ export default async function handler(req, res) {
       userId,
       from,
       rawText,
-      intent: intent.intent,
+      actions: actions.map((a) => a.intent),
       createdTaskIds,
       updatedTaskIds,
       clarificationRequested,

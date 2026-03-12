@@ -544,81 +544,96 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
       const regexResult = parseMessageIntent(rawText, now);
       regexResult.parseMethod = "regex_fallback";
       regexResult._llmError = llmResult._skip;
-      return regexResult;
+      // Wrap single-intent regex result in actions array
+      return wrapSingleIntentAsActions(regexResult);
     }
-    if (llmResult && llmResult.intent) {
-      // Convert LLM structured output to the same shape as regex parseMessageIntent
-      const result = {
-        intent: llmResult.intent,
-        confidence: llmResult.confidence || 0.85,
-        parseMethod: "llm",
-        tasks: [],
-      };
 
-      if (llmResult.intent === "create_task" || llmResult.intent === "create_recurring_task") {
-        // Support compound tasks: LLM may return a `tasks` array or a single `taskTitle`
-        const llmTasks = Array.isArray(llmResult.tasks) && llmResult.tasks.length > 0
-          ? llmResult.tasks
-          : [llmResult]; // wrap single-task schema for backward compat
-        result.tasks = llmTasks.map((t) => {
-          const title = t.title || t.taskTitle || rawText;
-          return {
-            title,
-            normalizedTitle: title.toLowerCase().trim(),
-            rawSourceText: rawText,
-            dueDate: t.dueDate || llmResult.dueDate || null,
-            isRecurring: t.isRecurring || llmResult.isRecurring || false,
-            recurrenceRule: (t.recurrenceRule || llmResult.recurrenceRule) ? safeParseRecurrence(t.recurrenceRule || llmResult.recurrenceRule) : null,
-            estimatedMinutes: t.estimatedMinutes || llmResult.estimatedMinutes || 30,
-            urgency: t.urgency || llmResult.urgency || 3,
-            importance: t.importance || llmResult.importance || 3,
-            effortType: t.effortType || llmResult.effortType || "deep_work",
-            source: "whatsapp",
-            aiConfidence: llmResult.confidence || 0.85,
-            goalName: t.goalName || llmResult.goalName || "General",
-            status: "open",
-          };
-        });
-      }
+    // New multi-intent format: LLM returns { actions: [...], confidence, followUpQuestion }
+    if (llmResult?.actions && Array.isArray(llmResult.actions) && llmResult.actions.length > 0) {
+      const confidence = llmResult.confidence || 0.85;
+      const actions = llmResult.actions.map((a) => mapLlmAction(a, rawText, confidence));
+      return { actions, confidence, parseMethod: "llm", followUpQuestion: llmResult.followUpQuestion || "" };
+    }
 
-      if (llmResult.intent === "complete_task") {
-        result.completionTarget = llmResult.completionTarget || rawText;
-      }
-      if (llmResult.intent === "reschedule_task") {
-        result.completionTarget = llmResult.completionTarget || rawText;
-        result.rescheduleDays = llmResult.rescheduleDays || 1;
-      }
-      if (llmResult.intent === "archive_task" || llmResult.intent === "cancel_task") {
-        result.completionTarget = llmResult.completionTarget || rawText;
-      }
-      if (llmResult.intent === "informational_update") {
-        result.noteText = llmResult.noteText || rawText;
-      }
-      if (llmResult.intent === "goal") {
-        result.goalTitle = llmResult.goalTitle || rawText;
-      }
-      if (llmResult.intent === "note") {
-        result.noteText = llmResult.noteText || rawText;
-      }
-      if (llmResult.intent === "ambiguous") {
-        result.clarificationQuestion = llmResult.followUpQuestion || "Could you be more specific?";
-      }
-
-      return result;
+    // Backward compat: old single-intent format (if LLM returns it)
+    if (llmResult?.intent) {
+      const mapped = mapLlmAction(llmResult, rawText, llmResult.confidence || 0.85);
+      return { actions: [mapped], confidence: llmResult.confidence || 0.85, parseMethod: "llm", followUpQuestion: llmResult.followUpQuestion || "" };
     }
   } catch (err) {
     console.error("parseMessageIntentWithLLM error, falling back to regex:", err.message);
     const regexResult = parseMessageIntent(rawText, now);
     regexResult.parseMethod = "regex_fallback";
     regexResult._llmError = err.message;
-    return regexResult;
+    return wrapSingleIntentAsActions(regexResult);
   }
 
   // Fallback to regex-based parser (LLM returned null)
   const regexResult = parseMessageIntent(rawText, now);
   regexResult.parseMethod = "regex_fallback";
   regexResult._llmError = "llm_returned_null";
-  return regexResult;
+  return wrapSingleIntentAsActions(regexResult);
+}
+
+// Convert a single LLM action object into normalized internal format
+function mapLlmAction(a, rawText, confidence) {
+  const result = {
+    intent: a.intent,
+    confidence,
+  };
+
+  if (a.intent === "create_task" || a.intent === "create_recurring_task") {
+    const title = a.taskTitle || a.title || rawText;
+    result.tasks = [{
+      title,
+      normalizedTitle: title.toLowerCase().trim(),
+      rawSourceText: rawText,
+      dueDate: a.dueDate || null,
+      isRecurring: a.isRecurring || false,
+      recurrenceRule: a.recurrenceRule ? safeParseRecurrence(a.recurrenceRule) : null,
+      estimatedMinutes: a.estimatedMinutes || 30,
+      urgency: a.urgency || 3,
+      importance: a.importance || 3,
+      effortType: a.effortType || "deep_work",
+      source: "whatsapp",
+      aiConfidence: confidence,
+      goalName: a.goalName || "General",
+      status: "open",
+    }];
+  }
+  if (a.intent === "complete_task") {
+    result.completionTarget = a.completionTarget || rawText;
+  }
+  if (a.intent === "reschedule_task") {
+    result.completionTarget = a.completionTarget || rawText;
+    result.rescheduleDays = a.rescheduleDays || 1;
+  }
+  if (a.intent === "archive_task" || a.intent === "cancel_task") {
+    result.completionTarget = a.completionTarget || rawText;
+  }
+  if (a.intent === "informational_update" || a.intent === "note") {
+    result.noteText = a.noteText || rawText;
+  }
+  if (a.intent === "goal") {
+    result.goalTitle = a.goalTitle || rawText;
+  }
+  if (a.intent === "ambiguous") {
+    result.clarificationQuestion = a.followUpQuestion || "Could you be more specific?";
+  }
+
+  return result;
+}
+
+// Wrap old single-intent regex result into the new actions-array format
+function wrapSingleIntentAsActions(regexResult) {
+  const action = { ...regexResult };
+  return {
+    actions: [action],
+    confidence: regexResult.confidence || 0.5,
+    parseMethod: regexResult.parseMethod || "regex_fallback",
+    _llmError: regexResult._llmError,
+    followUpQuestion: regexResult.clarificationQuestion || "",
+  };
 }
 
 // ─── Context Bundle Builder (Phase 2A) ───
@@ -1023,6 +1038,143 @@ export async function recomputeDailyPlan({
     nudgeCandidates,
     dailyCapacityMinutes,
   };
+}
+
+// ─── Rich Response Builder ───
+
+export function buildRichResponse(actionsTaken, ctx, calendarEvents = []) {
+  if (!actionsTaken || actionsTaken.length === 0) {
+    return "Captured.";
+  }
+
+  const lines = [];
+  const openCount = (ctx?.openTasks || []).length;
+  const overdueCount = (ctx?.overdueTasks || []).length;
+  const todayCount = (ctx?.dueTodayTasks || []).length;
+  const topPriority = ctx?.openTasks?.[0];
+
+  // Compute today's completed count from recent completions
+  const completedTodayCount = (ctx?.recentCompletions || []).length;
+
+  for (const action of actionsTaken) {
+    if (action.type === "task_created" && action.task) {
+      lines.push(`Added: "${action.task.title || action.task.text}"`);
+    } else if (action.type === "task_completed" && action.task) {
+      lines.push(`Done: "${action.task.title}" \u2713`);
+    } else if (action.type === "task_rescheduled" && action.task) {
+      const newDate = action.newDate ? ` to ${action.newDate.slice(0, 10)}` : "";
+      lines.push(`Rescheduled: "${action.task.title}"${newDate}`);
+    } else if (action.type === "task_archived" && action.task) {
+      lines.push(`Archived: "${action.task.title}"`);
+    } else if (action.type === "task_cancelled" && action.task) {
+      lines.push(`Cancelled: "${action.task.title}"`);
+    } else if (action.type === "goal_created" && action.goal) {
+      lines.push(`Goal captured: "${action.goal.title}"`);
+    } else if (action.type === "note_saved") {
+      lines.push("Noted.");
+    } else if (action.type === "update_noted") {
+      lines.push("Got it \u2014 noted.");
+    } else if (action.type === "clarification") {
+      // Clarification is the whole response
+      return action.question || "Which task did you mean?";
+    } else if (action.type === "error") {
+      return action.message || "I had trouble processing that. Please try again.";
+    }
+  }
+
+  // Add state context line
+  const hasCompletion = actionsTaken.some((a) => a.type === "task_completed");
+  const hasCreation = actionsTaken.some((a) => a.type === "task_created");
+  const hasNote = actionsTaken.some((a) => a.type === "note_saved" || a.type === "update_noted");
+
+  if (hasCompletion) {
+    const totalToday = completedTodayCount + todayCount;
+    const progressLine = totalToday > 0
+      ? `${completedTodayCount}/${totalToday} done today.`
+      : `${completedTodayCount} done today.`;
+    const parts = [progressLine];
+    if (overdueCount > 0) parts.push(`\u26a0\ufe0f ${overdueCount} overdue.`);
+    lines.push(parts.join(" "));
+  } else if (hasCreation) {
+    const totalMin = (ctx?.openTasks || []).reduce((s, t) => s + (t.estimatedMinutes || 30), 0);
+    lines.push(`${openCount} task${openCount === 1 ? "" : "s"} open (${totalMin}m total).`);
+  }
+
+  // Next priority line
+  if (topPriority && !hasNote) {
+    const skipIds = new Set(actionsTaken.filter((a) => a.task?.id).map((a) => a.task.id));
+    const nextTask = (ctx?.openTasks || []).find((t) => !skipIds.has(t.id)) || topPriority;
+    if (nextTask) {
+      lines.push(`Next up: "${nextTask.title}" (${nextTask.estimatedMinutes || 30}m)`);
+    }
+  }
+
+  // Calendar context (if events available)
+  if (calendarEvents.length > 0) {
+    const calLine = buildCalendarContextLine(calendarEvents);
+    if (calLine) lines.push(calLine);
+  }
+
+  return lines.join("\n");
+}
+
+function buildCalendarContextLine(events) {
+  if (!events || events.length === 0) return null;
+
+  const now = new Date();
+  const upcoming = events.filter((e) => {
+    if (e.allDay) return false;
+    const start = new Date(e.start);
+    return start > now;
+  });
+
+  if (upcoming.length === 0) return null;
+
+  const next = upcoming[0];
+  const startTime = new Date(next.start);
+  const minutesUntil = Math.round((startTime - now) / 60000);
+
+  if (minutesUntil <= 0) return null;
+  if (minutesUntil <= 15) return `Meeting "${next.summary}" starting soon.`;
+  if (minutesUntil <= 60) return `${minutesUntil}min until "${next.summary}" \u2014 good window for a quick sprint.`;
+  if (upcoming.length >= 3) return `Busy day with ${upcoming.length} meetings ahead. Focus between them.`;
+  return null;
+}
+
+// ─── Evening Response Handler ───
+
+export function parseEveningResponse(rawText, topTaskTitles = []) {
+  const lower = rawText.toLowerCase().trim();
+  const results = [];
+
+  // Try numbered format: "1. done 2. skipped 3. partial"
+  const numbered = lower.match(/(\d+)\s*[.):\-]?\s*(done|partial|skipped|not done|completed|finished|avoided|blocked|not needed)/gi);
+  if (numbered && numbered.length > 0) {
+    for (const match of numbered) {
+      const parts = match.match(/(\d+)\s*[.):\-]?\s*(.+)/i);
+      if (parts) {
+        const idx = parseInt(parts[1], 10) - 1;
+        const status = normalizeEveningStatus(parts[2].trim());
+        results.push({ index: idx, status, taskTitle: topTaskTitles[idx] || null });
+      }
+    }
+    return results.length > 0 ? results : null;
+  }
+
+  // Try single word for all: "done" / "all done" / "skipped"
+  if (/^(all\s+)?done\b/.test(lower)) {
+    return topTaskTitles.map((title, idx) => ({ index: idx, status: "done", taskTitle: title }));
+  }
+
+  return null;
+}
+
+function normalizeEveningStatus(text) {
+  const lower = text.toLowerCase();
+  if (/done|completed|finished/.test(lower)) return "done";
+  if (/partial/.test(lower)) return "partial";
+  if (/skipped|not done|avoided|blocked|not needed/.test(lower)) return "skipped";
+  return "skipped";
 }
 
 function formatTaskLine(task) {

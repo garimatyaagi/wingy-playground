@@ -9,13 +9,28 @@ function stripCodeFences(s) {
     .trim();
 }
 
-// ─── Structured output schema for message parsing ───
+// ─── Structured output schema for message parsing (multi-intent) ───
 
-const TaskItemSchema = {
+const ActionItemSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    title: { type: "string" },
+    intent: {
+      type: "string",
+      enum: [
+        "create_task",
+        "create_recurring_task",
+        "complete_task",
+        "reschedule_task",
+        "archive_task",
+        "cancel_task",
+        "informational_update",
+        "goal",
+        "note",
+        "ambiguous",
+      ],
+    },
+    taskTitle: { type: "string" },
     dueDate: { type: ["string", "null"] },
     estimatedMinutes: { type: "integer" },
     urgency: { type: "integer" },
@@ -24,8 +39,16 @@ const TaskItemSchema = {
     isRecurring: { type: "boolean" },
     recurrenceRule: { type: ["string", "null"] },
     goalName: { type: "string" },
+    completionTarget: { type: "string" },
+    rescheduleDays: { type: "integer" },
+    noteText: { type: "string" },
+    goalTitle: { type: "string" },
   },
-  required: ["title", "dueDate", "estimatedMinutes", "urgency", "importance", "effortType", "isRecurring", "recurrenceRule", "goalName"],
+  required: [
+    "intent", "taskTitle", "dueDate", "estimatedMinutes", "urgency",
+    "importance", "effortType", "isRecurring", "recurrenceRule", "goalName",
+    "completionTarget", "rescheduleDays", "noteText", "goalTitle",
+  ],
 };
 
 const ParseSchema = {
@@ -35,57 +58,11 @@ const ParseSchema = {
     type: "object",
     additionalProperties: false,
     properties: {
-      intent: {
-        type: "string",
-        enum: [
-          "create_task",
-          "create_recurring_task",
-          "complete_task",
-          "reschedule_task",
-          "archive_task",
-          "cancel_task",
-          "informational_update",
-          "goal",
-          "note",
-          "ambiguous",
-        ],
-      },
+      actions: { type: "array", items: ActionItemSchema },
       confidence: { type: "number" },
-      taskTitle: { type: "string" },
-      tasks: { type: "array", items: TaskItemSchema },
-      dueDate: { type: ["string", "null"] },
-      goalName: { type: "string" },
-      estimatedMinutes: { type: "integer" },
-      urgency: { type: "integer" },
-      importance: { type: "integer" },
-      effortType: { type: "string" },
-      isRecurring: { type: "boolean" },
-      recurrenceRule: { type: ["string", "null"] },
-      completionTarget: { type: "string" },
-      rescheduleDays: { type: "integer" },
-      noteText: { type: "string" },
-      goalTitle: { type: "string" },
       followUpQuestion: { type: "string" },
     },
-    required: [
-      "intent",
-      "confidence",
-      "taskTitle",
-      "tasks",
-      "dueDate",
-      "goalName",
-      "estimatedMinutes",
-      "urgency",
-      "importance",
-      "effortType",
-      "isRecurring",
-      "recurrenceRule",
-      "completionTarget",
-      "rescheduleDays",
-      "noteText",
-      "goalTitle",
-      "followUpQuestion",
-    ],
+    required: ["actions", "confidence", "followUpQuestion"],
   },
 };
 
@@ -121,14 +98,20 @@ YOUR #1 RULE: WHEN IN DOUBT, CREATE THE TASK.
 This is a task management app. Users message you to track things they need to do.
 If the message describes ANY actionable thing, create_task. Do NOT ask for clarification unless the message is truly meaningless gibberish.
 
+CRITICAL: Return an "actions" array. A SINGLE MESSAGE can contain MULTIPLE intents.
+Examples:
+- "Done with pitch deck, now email Neha about partnership" → actions: [complete_task, create_task]
+- "Finished emails and call dentist tomorrow" → actions: [complete_task, create_task]
+- "Cancel the gym task, add yoga instead" → actions: [cancel_task, create_task]
+- "Setup linkedin posting strategy" → actions: [create_task] (single action)
+Most messages will have just ONE action. Only split when the user clearly describes multiple distinct actions.
+
 RULES:
 
 1. BIAS TOWARD ACTION:
-   - "whatsapp flow for littlewise" → create_task (title: "Whatsapp flow for Littlewise")
+   - "whatsapp flow for littlewise" → create_task (taskTitle: "Whatsapp flow for Littlewise")
    - "schedule posts on instagram" → create_task
-   - "add email flow" → create_task
    - "call dentist" → create_task
-   - "buy groceries" → create_task
    ANY phrase that describes something that could be done = create_task.
 
 2. TENSE MATTERS:
@@ -136,7 +119,6 @@ RULES:
      "I sent the emails" → informational_update
      "I have sent packages" → informational_update
      "Finished the report" → complete_task
-     "This is completed" → complete_task
    - PRESENT/FUTURE/IMPERATIVE = create_task.
      "Send emails" → create_task
      "Need to call dentist" → create_task
@@ -144,22 +126,18 @@ RULES:
 3. META-CONVERSATION (ONLY these exact patterns):
    "I want to add tasks" / "add a task" / "yes add a task" → ambiguous (ask what task)
    ONLY when user talks ABOUT adding tasks without saying WHAT the task is.
-   "Add whatsapp flow" is NOT meta — it specifies the task → create_task.
 
 4. CLARIFICATION FOLLOW-UPS — check recent conversation:
-   If the agent just asked "what task?" or "could you clarify?", the user's next message is likely the ANSWER.
-   Treat short phrases as task titles in this context → create_task.
+   If the agent just asked "what task?" or "could you clarify?", the user's next message is likely the ANSWER → create_task.
 
 5. COMPLETION SIGNALS → complete_task:
-   "done", "done with X", "finished X", "completed X", "X is done", "mark X as done"
-   "I already did X", "I have done X"
+   "done", "done with X", "finished X", "completed X", "X is done"
    completionTarget = the TASK NAME being completed (NOT a date). Extract the action noun:
-     "I have sent influencer packages. is done" → completionTarget: "sent influencer packages"
      "finished the pitch deck" → completionTarget: "pitch deck"
      "email flow is done" → completionTarget: "email flow"
 
 6. STATUS UPDATES → informational_update:
-   Past-tense updates: "meeting went well", "just got out of gym", "I also did X"
+   Past-tense updates: "meeting went well", "just got out of gym"
 
 7. NEGATION / CORRECTION:
    After agent created a task, user says "no this is completed" → complete_task.
@@ -168,11 +146,11 @@ RULES:
 9. CANCEL: "cancel X", "drop X", "never mind about X"
 10. NOTES: journal entries, reflections. GOALS: long-term aspirations.
 
-"ambiguous" is ONLY for messages where you genuinely cannot determine ANY intent — like "ok", "hmm", "add a task" (without saying what task). NOT for actionable phrases.
+"ambiguous" is ONLY for messages where you genuinely cannot determine ANY intent — like "ok", "hmm". NOT for actionable phrases.
 
 For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_work, admin, health, call, errand, learning.
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
-For compound tasks, populate the "tasks" array. If fields don't apply, use empty string or 0.`;
+If fields don't apply, use empty string or 0.`;
 
   const input = [
     { role: "system", content: systemPrompt },

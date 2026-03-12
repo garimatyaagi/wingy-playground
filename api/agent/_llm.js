@@ -150,9 +150,13 @@ RULES:
    If the agent just asked "what task?" or "could you clarify?", the user's next message is likely the ANSWER.
    Treat short phrases as task titles in this context → create_task.
 
-5. COMPLETION SIGNALS → complete_task (set completionTarget):
+5. COMPLETION SIGNALS → complete_task:
    "done", "done with X", "finished X", "completed X", "X is done", "mark X as done"
    "I already did X", "I have done X"
+   completionTarget = the TASK NAME being completed (NOT a date). Extract the action noun:
+     "I have sent influencer packages. is done" → completionTarget: "sent influencer packages"
+     "finished the pitch deck" → completionTarget: "pitch deck"
+     "email flow is done" → completionTarget: "email flow"
 
 6. STATUS UPDATES → informational_update:
    Past-tense updates: "meeting went well", "just got out of gym", "I also did X"

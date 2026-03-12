@@ -359,8 +359,13 @@ export default async function handler(req, res) {
         : "Saved as note. It will not clutter your active priorities.";
       await logParsedAction({ captureId, userId, actionType: intent.intent, actionPayload: { text: (intent.noteText || rawText).slice(0, 200) }, result, confidence: intent.confidence });
     } else if (intent.intent === "complete_task") {
+      // If completionTarget looks like a date or is empty, use rawText instead
+      let completionTarget = intent.completionTarget || rawText;
+      if (/^\d{4}-\d{2}-\d{2}/.test(completionTarget) || completionTarget.length < 3) {
+        completionTarget = rawText;
+      }
       const match = resolveTaskMatch({
-        targetText: intent.completionTarget || rawText,
+        targetText: completionTarget,
         openTasks,
         preferredTaskIds,
         lastNudgedTaskId,

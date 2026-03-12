@@ -1,5 +1,7 @@
 import {
   createTaskStep,
+  fetchLastAgentMessage,
+  fetchLastUserCapture,
   findCaptureByMessageSid,
   findOrCreateGoal,
   logAgentMessage,
@@ -122,6 +124,20 @@ export default async function handler(req, res) {
     // ─── Pre-LLM keyword shortcuts for common patterns ───
     const lower = rawText.toLowerCase().trim();
 
+    // "Add a task" / "Yes add a task" without specifying WHAT — ask for the task
+    if (/^(?:yes\s*,?\s*)?(?:add|create)\s+(?:a\s+)?tasks?\s*[.!]?$/i.test(lower)) {
+      const askReply = "What task would you like me to add?";
+      await updateMessageCapture(captureId, {
+        parsedIntent: "ambiguous", parseConfidence: 1, parseMethod: "keyword",
+        parseDurationMs: 0, processed: true,
+        createdTaskIds: [], updatedTaskIds: [],
+        clarificationRequested: true, processingResult: "clarification_requested",
+      });
+      await logAgentMessage({ userId, type: "clarification", body: askReply, relatedTaskIds: [], metadata: { source: "whatsapp-webhook", intent: "ambiguous", result: "meta_add_task" } });
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(askReply));
+    }
+
     // "Add task: X" — skip LLM, create directly
     const addTaskMatch = rawText.match(/^add\s+task\s*[:!-]\s*(.+)/i);
     if (addTaskMatch) {
@@ -184,6 +200,99 @@ export default async function handler(req, res) {
         return res.status(200).send(twimlMessage(replyText));
       }
       // Fall through to LLM if no match
+    }
+
+    // ─── Clarification follow-up: if bot just asked a question, user's reply answers it ───
+    const lastBotMsg = await fetchLastAgentMessage(userId);
+    const botJustAskedClarification = lastBotMsg?.type === "clarification";
+    const botAskedWhatTask = botJustAskedClarification && /what\s+task/i.test(lastBotMsg.body || "");
+    const botAskedClarifyOrConfirm = botJustAskedClarification && /clarify|do you want|would you like/i.test(lastBotMsg.body || "");
+
+    // If bot asked "what task?" and user responds with something actionable, create it directly
+    if (botAskedWhatTask) {
+      // User says "Yes add a task" / "Yes" — they're confirming, but we need the actual task
+      const yesMatch = rawText.match(/^(?:yes|yeah|yep|yup|ya|sure|ok)\s*,?\s*(.+)?$/i);
+      const afterYes = yesMatch ? (yesMatch[1] || "").trim() : "";
+      // If "yes add a task" or just "yes" — still no task title, ask again
+      if (yesMatch && (!afterYes || /^add\s+a?\s*tasks?$/i.test(afterYes))) {
+        // Try to find the task mentioned in the previous user message
+        const prevCapture = await fetchLastUserCapture(userId);
+        const prevText = (prevCapture?.raw_text || "").trim();
+        // If the previous user message had actual content (not "add a task" or "yes"), use it
+        if (prevText && !/^(?:yes|add\s+a?\s*tasks?|task)$/i.test(prevText.toLowerCase())) {
+          const title = prevText;
+          const created = await createTaskStep(userId, {
+            title, normalizedTitle: title.toLowerCase(), rawSourceText: rawText,
+            estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
+            source: "whatsapp", aiConfidence: 0.9, goalName: "General", status: "open",
+          });
+          const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+          const replyText = created?.id
+            ? `Added: "${title}".${planNextLine(nextPlan)}`
+            : "Could not save that task. Please try again.";
+          await updateMessageCapture(captureId, {
+            parsedIntent: "create_task", parseConfidence: 0.9, parseMethod: "clarification_followup",
+            parseDurationMs: 0, processed: true,
+            createdTaskIds: created?.id ? [created.id] : [], updatedTaskIds: [],
+            clarificationRequested: false, processingResult: created?.id ? "task_created" : "create_failed",
+          });
+          await logAgentMessage({ userId, type: "ack", body: replyText, relatedTaskIds: created?.id ? [created.id] : [], metadata: { source: "whatsapp-webhook", intent: "create_task", result: "clarification_followup" } });
+          res.setHeader("Content-Type", "text/xml");
+          return res.status(200).send(twimlMessage(replyText));
+        }
+        // else: no recoverable context, fall through to LLM
+      } else if (!yesMatch) {
+        // User replied with a direct phrase (not "yes") — this IS the task title
+        const title = rawText.trim();
+        if (title.length > 2 && title.length < 200) {
+          const created = await createTaskStep(userId, {
+            title, normalizedTitle: title.toLowerCase(), rawSourceText: rawText,
+            estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
+            source: "whatsapp", aiConfidence: 0.9, goalName: "General", status: "open",
+          });
+          const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+          const replyText = created?.id
+            ? `Added: "${title}".${planNextLine(nextPlan)}`
+            : "Could not save that task. Please try again.";
+          await updateMessageCapture(captureId, {
+            parsedIntent: "create_task", parseConfidence: 0.9, parseMethod: "clarification_followup",
+            parseDurationMs: 0, processed: true,
+            createdTaskIds: created?.id ? [created.id] : [], updatedTaskIds: [],
+            clarificationRequested: false, processingResult: created?.id ? "task_created" : "create_failed",
+          });
+          await logAgentMessage({ userId, type: "ack", body: replyText, relatedTaskIds: created?.id ? [created.id] : [], metadata: { source: "whatsapp-webhook", intent: "create_task", result: "clarification_followup" } });
+          res.setHeader("Content-Type", "text/xml");
+          return res.status(200).send(twimlMessage(replyText));
+        }
+      }
+    }
+
+    // If bot asked "do you want to create a task?" and user says "yes" — create it from context
+    if (botAskedClarifyOrConfirm && /^(?:yes|yeah|yep|yup|ya|sure|ok)/i.test(lower)) {
+      // Extract what the clarification was about from the bot's last message
+      const aboutMatch = (lastBotMsg.body || "").match(/(?:create a task (?:for|related to|about) |mean by ')(.+?)(?:'|\?|,|$)/i);
+      const taskFromContext = aboutMatch ? aboutMatch[1].trim() : null;
+      if (taskFromContext) {
+        const title = taskFromContext;
+        const created = await createTaskStep(userId, {
+          title, normalizedTitle: title.toLowerCase(), rawSourceText: rawText,
+          estimatedMinutes: 30, urgency: 3, importance: 3, effortType: "deep_work",
+          source: "whatsapp", aiConfidence: 0.85, goalName: "General", status: "open",
+        });
+        const nextPlan = await recomputeDailyPlan({ userId, dailyCapacityMinutes: 180 });
+        const replyText = created?.id
+          ? `Added: "${title}".${planNextLine(nextPlan)}`
+          : "Could not save that task. Please try again.";
+        await updateMessageCapture(captureId, {
+          parsedIntent: "create_task", parseConfidence: 0.85, parseMethod: "clarification_followup",
+          parseDurationMs: 0, processed: true,
+          createdTaskIds: created?.id ? [created.id] : [], updatedTaskIds: [],
+          clarificationRequested: false, processingResult: created?.id ? "task_created" : "create_failed",
+        });
+        await logAgentMessage({ userId, type: "ack", body: replyText, relatedTaskIds: created?.id ? [created.id] : [], metadata: { source: "whatsapp-webhook", intent: "create_task", result: "clarification_followup" } });
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(replyText));
+      }
     }
 
     const parseStart = Date.now();

@@ -694,6 +694,38 @@ export async function logTaskEvent(taskId, eventType, metadata = {}) {
   console.error("logTaskEvent failed", { error: first.error, payload });
 }
 
+export async function fetchLastAgentMessage(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const { data, error } = await supabase
+    .from("agent_messages")
+    .select("id, type, body, related_task_ids, metadata, sent_at")
+    .eq("user_id", userId)
+    .order("sent_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (error && !isMissingTable(error)) {
+    console.error("fetchLastAgentMessage failed", { error, userId });
+  }
+  return data || null;
+}
+
+export async function fetchLastUserCapture(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const { data, error } = await supabase
+    .from("message_captures")
+    .select("id, raw_text, parsed_intent, clarification_requested, processing_result, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (error && !isMissingTable(error)) {
+    console.error("fetchLastUserCapture failed", { error, userId });
+  }
+  return data || null;
+}
+
 export async function logAgentMessage({
   userId,
   type,

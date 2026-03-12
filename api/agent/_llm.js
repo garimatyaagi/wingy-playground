@@ -117,52 +117,58 @@ ${taskList || "(none)"}
 Recent conversation (newest first):
 ${recentContext || "(none)"}
 
-CRITICAL RULES — read carefully:
+YOUR #1 RULE: WHEN IN DOUBT, CREATE THE TASK.
+This is a task management app. Users message you to track things they need to do.
+If the message describes ANY actionable thing, create_task. Do NOT ask for clarification unless the message is truly meaningless gibberish.
 
-1. TENSE MATTERS:
-   - PAST TENSE = the user DID something. This is NEVER a new task.
-     "I sent the emails" → informational_update (they already did it)
-     "I have sent influencer packages" → informational_update
-     "Finished the report" → complete_task (match to open task)
-     "Called the dentist" → informational_update or complete_task
+RULES:
+
+1. BIAS TOWARD ACTION:
+   - "whatsapp flow for littlewise" → create_task (title: "Whatsapp flow for Littlewise")
+   - "schedule posts on instagram" → create_task
+   - "add email flow" → create_task
+   - "call dentist" → create_task
+   - "buy groceries" → create_task
+   ANY phrase that describes something that could be done = create_task.
+
+2. TENSE MATTERS:
+   - PAST = the user already DID it. NOT a new task.
+     "I sent the emails" → informational_update
+     "I have sent packages" → informational_update
+     "Finished the report" → complete_task
      "This is completed" → complete_task
-   - FUTURE/IMPERATIVE = the user WANTS TO DO something. This IS a task.
-     "Send emails to influencers" → create_task
-     "Need to call the dentist" → create_task
-     "Add task: schedule meeting" → create_task
+   - PRESENT/FUTURE/IMPERATIVE = create_task.
+     "Send emails" → create_task
+     "Need to call dentist" → create_task
 
-2. META-CONVERSATION is NOT a task:
-   "I want to add more tasks" → ambiguous (ask: "What tasks would you like to add?")
-   "Now I'm going to send you tasks" → ambiguous (ask: "Go ahead, what tasks?")
-   "Hi! I'm sending you tasks" → ambiguous (ask: "Sure, go ahead!")
+3. META-CONVERSATION (ONLY these exact patterns):
+   "I want to add tasks" / "add a task" / "yes add a task" → ambiguous (ask what task)
+   ONLY when user talks ABOUT adding tasks without saying WHAT the task is.
+   "Add whatsapp flow" is NOT meta — it specifies the task → create_task.
 
-3. NEGATION / CORRECTION:
-   "No" or "No don't" after a previous action → look at recent conversation context.
-   If the agent just created a task and user says "no this is completed", the user means the previously discussed item is ALREADY DONE = complete_task.
+4. CLARIFICATION FOLLOW-UPS — check recent conversation:
+   If the agent just asked "what task?" or "could you clarify?", the user's next message is likely the ANSWER.
+   Treat short phrases as task titles in this context → create_task.
 
-4. COMPLETION SIGNALS (always = complete_task, use completionTarget to match):
+5. COMPLETION SIGNALS → complete_task (set completionTarget):
    "done", "done with X", "finished X", "completed X", "X is done", "mark X as done"
-   "I already did X", "I have done X", "X is completed"
+   "I already did X", "I have done X"
 
-5. TASK CREATION SIGNALS:
-   "need to", "have to", "gotta", "must", "should", "remind me to", "add task:"
-   Only if describing a FUTURE action the user has NOT yet done.
+6. STATUS UPDATES → informational_update:
+   Past-tense updates: "meeting went well", "just got out of gym", "I also did X"
 
-6. STATUS UPDATES (= informational_update):
-   "meeting went well", "just got out of gym", "I also did X"
-   Any sentence describing something that ALREADY HAPPENED and doesn't match an open task.
+7. NEGATION / CORRECTION:
+   After agent created a task, user says "no this is completed" → complete_task.
 
-7. RESCHEDULE: "move X to tomorrow", "postpone X", "push X back"
-8. CANCEL/ARCHIVE: "cancel X", "never mind about X", "drop X", "don't need X anymore"
-9. NOTES: life reflections, journal entries, random thoughts
-10. GOALS: long-term aspirations ("I want to run a marathon")
+8. RESCHEDULE: "move X to tomorrow", "postpone X"
+9. CANCEL: "cancel X", "drop X", "never mind about X"
+10. NOTES: journal entries, reflections. GOALS: long-term aspirations.
 
-For due dates: ISO format (${today}T23:59:00.000Z for today). "tomorrow" = next day.
-For urgency: 1-5 (5=ASAP). For importance: 1-5 (5=critical).
-For effortType: deep_work, admin, health, call, errand, learning.
+"ambiguous" is ONLY for messages where you genuinely cannot determine ANY intent — like "ok", "hmm", "add a task" (without saying what task). NOT for actionable phrases.
+
+For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_work, admin, health, call, errand, learning.
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
-For compound tasks, populate the "tasks" array with each individual task.
-If fields don't apply, use empty string or 0.`;
+For compound tasks, populate the "tasks" array. If fields don't apply, use empty string or 0.`;
 
   const input = [
     { role: "system", content: systemPrompt },

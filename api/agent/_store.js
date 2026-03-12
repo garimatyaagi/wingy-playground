@@ -293,6 +293,7 @@ export async function listOpenTasks(userId) {
       .from("task_steps")
       .select(richSelect)
       .in("task_id", goalIds)
+      .not("status", "in", '("archived","cancelled","done")')
       .order("created_at", { ascending: false });
     let rows = [];
     if (!first.error) {

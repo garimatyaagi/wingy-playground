@@ -14,6 +14,7 @@ import TodaySurface from "./components/TodaySurface";
 import InboxSurface from "./components/InboxSurface";
 import GoalsSurface from "./components/GoalsSurface";
 import AgentSettingsSurface from "./components/AgentSettingsSurface";
+import useRealtimeSync from "./hooks/useRealtimeSync";
 import {
   buildAccountabilityFeed,
   buildCommandCenter,
@@ -406,7 +407,6 @@ export default function App() {
 
   const [serverCaptures, setServerCaptures] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  const lastRefreshRef = useRef(0);
 
   const [intakeRawText, setIntakeRawText] = useState("");
   const [intakePreview, setIntakePreview] = useState([]);
@@ -2510,9 +2510,6 @@ export default function App() {
   }
 
   const refreshWorkspace = useCallback(() => {
-    const now = Date.now();
-    if (now - lastRefreshRef.current < 5000) return;
-    lastRefreshRef.current = now;
     setRefreshKey((k) => k + 1);
   }, []);
 
@@ -2535,15 +2532,11 @@ export default function App() {
     }
   }, [supabase, user?.id]);
 
-  useEffect(() => {
-    if (!user?.id || !supabase) return;
-    loadServerCaptures();
-    const interval = setInterval(() => {
-      loadServerCaptures();
-      refreshWorkspace();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [user?.id, supabase, loadServerCaptures, refreshWorkspace]);
+  /* ── Realtime sync: replaces old 30s setInterval polling ── */
+  useRealtimeSync(supabase, user?.id, {
+    onTaskChange: refreshWorkspace,
+    onCaptureChange: loadServerCaptures,
+  });
 
   function commitTopPriorities() {
     const top = commandCenter.topPriorities || [];

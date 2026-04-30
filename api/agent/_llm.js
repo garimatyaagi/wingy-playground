@@ -52,37 +52,19 @@ const ActionItemSchema = {
     noteText: { type: "string" },
     goalTitle: { type: "string" },
     pauseDurationMinutes: { type: "integer" },
+    memoryKey: { type: "string" },
+    memoryValue: { type: "string" },
+    memoryAction: { type: "string" },
+    pulseDelayMinutes: { type: "integer" },
+    pulseContext: { type: "string" },
   },
   required: [
     "intent", "taskTitle", "dueDate", "estimatedMinutes", "urgency",
     "importance", "effortType", "isRecurring", "recurrenceRule", "goalName",
     "completionTarget", "rescheduleDays", "noteText", "goalTitle",
-    "pauseDurationMinutes",
+    "pauseDurationMinutes", "memoryKey", "memoryValue", "memoryAction",
+    "pulseDelayMinutes", "pulseContext",
   ],
-};
-
-// Memory tool calls schema returned alongside actions
-const MemoryToolSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    action: { type: "string", enum: ["save", "update", "delete"] },
-    key: { type: "string" },
-    value: { type: "string" },
-  },
-  required: ["action", "key", "value"],
-};
-
-// Pulse/follow-up scheduling schema
-const PulseToolSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    delayMinutes: { type: "integer" },
-    context: { type: "string" },
-    pulseType: { type: "string" },
-  },
-  required: ["delayMinutes", "context", "pulseType"],
 };
 
 const ParseSchema = {
@@ -95,10 +77,8 @@ const ParseSchema = {
       actions: { type: "array", items: ActionItemSchema },
       confidence: { type: "number" },
       followUpQuestion: { type: "string" },
-      memoryOps: { type: "array", items: MemoryToolSchema },
-      pulseOps: { type: "array", items: PulseToolSchema },
     },
-    required: ["actions", "confidence", "followUpQuestion", "memoryOps", "pulseOps"],
+    required: ["actions", "confidence", "followUpQuestion"],
   },
 };
 
@@ -204,19 +184,17 @@ For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_wor
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
 If fields don't apply, use empty string or 0.
 
-## MEMORY TOOLS
-You have persistent memory about this user. Use "memoryOps" to manage it:
-- { action: "save", key: "preference_name", value: "detail" } — store a new fact
-- { action: "update", key: "existing_key", value: "new_value" } — update a fact
-- { action: "delete", key: "old_key", value: "" } — remove an outdated fact
-Save important facts: preferences, habits, people mentioned, work patterns, scheduling constraints. Be selective — save what matters, not everything.
-Return an empty memoryOps array if no memory changes needed.
+## MEMORY (per action fields)
+You have persistent memory. On any action, you can also set memoryAction/memoryKey/memoryValue to manage memory:
+- memoryAction: "save", memoryKey: "morning_routine", memoryValue: "User runs at 6am" — store a fact
+- memoryAction: "delete", memoryKey: "old_key", memoryValue: "" — remove outdated fact
+Save important facts: preferences, habits, people mentioned, work patterns. Be selective.
+Set memoryAction to "" and memoryKey/memoryValue to "" when no memory change needed.
 
-## FOLLOW-UP SCHEDULING
-Use "pulseOps" to schedule proactive follow-up messages:
-- { delayMinutes: 120, context: "Check if user started the pitch deck", pulseType: "followup" }
-Use when: user says "I'll do it later/after lunch/in a bit", or a contextual follow-up makes sense.
-Be judicious — don't over-schedule. Return empty pulseOps array if no follow-ups needed.`;
+## FOLLOW-UP (per action fields)
+Set pulseDelayMinutes and pulseContext to schedule a follow-up message:
+- pulseDelayMinutes: 120, pulseContext: "Check if user started the pitch deck"
+Use when user says "I'll do it later/after lunch". Set both to 0/"" when not needed.`;
 
   const input = [
     { role: "system", content: systemPrompt },
@@ -240,29 +218,29 @@ Be judicious — don't over-schedule. Return empty pulseOps array if no follow-u
     const cleaned = stripCodeFences((response.output_text || "").trim());
     const parsed = JSON.parse(cleaned);
 
-    // Process memory operations in the background
-    if (userId && Array.isArray(parsed.memoryOps) && parsed.memoryOps.length > 0) {
-      for (const op of parsed.memoryOps) {
+    // Process memory and pulse ops embedded in actions
+    if (userId && Array.isArray(parsed.actions)) {
+      for (const action of parsed.actions) {
+        // Memory operations
         try {
-          if (op.action === "save" || op.action === "update") {
-            await upsertCoreMemory(userId, op.key, op.value);
-          } else if (op.action === "delete") {
-            await deleteCoreMemory(userId, op.key);
+          if (action.memoryKey && action.memoryValue && action.memoryAction) {
+            if (action.memoryAction === "save" || action.memoryAction === "update") {
+              await upsertCoreMemory(userId, action.memoryKey, action.memoryValue);
+            } else if (action.memoryAction === "delete") {
+              await deleteCoreMemory(userId, action.memoryKey);
+            }
           }
         } catch (e) {
-          console.error("memoryOp failed", { op, error: e.message });
+          console.error("memoryOp failed", { error: e.message });
         }
-      }
-    }
-
-    // Process pulse scheduling operations
-    if (userId && Array.isArray(parsed.pulseOps) && parsed.pulseOps.length > 0) {
-      for (const pulse of parsed.pulseOps) {
+        // Pulse scheduling
         try {
-          const fireAt = new Date(Date.now() + (pulse.delayMinutes || 120) * 60 * 1000).toISOString();
-          await createPulse(userId, fireAt, pulse.context || "Follow up", pulse.pulseType || "followup");
+          if (action.pulseDelayMinutes > 0 && action.pulseContext) {
+            const fireAt = new Date(Date.now() + action.pulseDelayMinutes * 60 * 1000).toISOString();
+            await createPulse(userId, fireAt, action.pulseContext, "followup");
+          }
         } catch (e) {
-          console.error("pulseOp failed", { pulse, error: e.message });
+          console.error("pulseOp failed", { error: e.message });
         }
       }
     }

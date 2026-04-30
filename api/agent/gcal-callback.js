@@ -1,19 +1,26 @@
-import { exchangeCode } from "./_calendar.js";
+import { exchangeCode, verifyOAuthState } from "./_calendar.js";
 import { getSupabaseAdmin } from "./_store.js";
+
+const ALLOWED_ORIGIN = process.env.APP_ORIGIN || "https://365tasks.online";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { code, state: userId, error: authError } = req.query || {};
+  const { code, state, error: authError } = req.query || {};
 
   if (authError) {
-    return sendResult(res, false, authError);
+    return sendResult(res, false, "auth_error");
   }
 
-  if (!code || !userId) {
-    return res.status(400).json({ error: "Missing code or state (userId)" });
+  if (!code || !state) {
+    return res.status(400).json({ error: "Missing code or state" });
+  }
+
+  const userId = verifyOAuthState(state);
+  if (!userId) {
+    return res.status(403).json({ error: "Invalid OAuth state" });
   }
 
   try {
@@ -47,22 +54,24 @@ export default async function handler(req, res) {
     return sendResult(res, true);
   } catch (err) {
     console.error("gcal-callback error:", err);
-    return sendResult(res, false, err.message);
+    return sendResult(res, false, "connection_failed");
   }
 }
 
 function sendResult(res, success, reason) {
   // Return an HTML page that notifies the opener tab and closes itself
   const status = success ? "connected" : "error";
+  const safeReason = String(reason || "").replace(/[<>"'&]/g, "");
+  const origin = JSON.stringify(ALLOWED_ORIGIN);
   const html = `<!DOCTYPE html>
 <html>
 <head><title>Google Calendar</title></head>
 <body>
-<p>${success ? "Google Calendar connected! This window will close." : "Connection failed: " + (reason || "unknown")}</p>
+<p>${success ? "Google Calendar connected! This window will close." : "Connection failed."}</p>
 <script>
   try {
     if (window.opener) {
-      window.opener.postMessage({ type: "gcal_result", status: "${status}", reason: ${JSON.stringify(reason || "")} }, "*");
+      window.opener.postMessage({ type: "gcal_result", status: "${status}", reason: "${safeReason}" }, ${origin});
     }
   } catch (e) {}
   setTimeout(function() { window.close(); }, 1500);

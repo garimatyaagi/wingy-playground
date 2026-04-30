@@ -1,5 +1,7 @@
 // Google Calendar integration using raw REST API (no googleapis dependency)
 
+import crypto from "crypto";
+
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
@@ -10,6 +12,28 @@ function getCredentials() {
   const redirectUri = process.env.GOOGLE_REDIRECT_URI;
   if (!clientId || !clientSecret || !redirectUri) return null;
   return { clientId, clientSecret, redirectUri };
+}
+
+function getStateSigningKey() {
+  return process.env.GOOGLE_CLIENT_SECRET || "fallback-signing-key";
+}
+
+export function signOAuthState(userId) {
+  const key = getStateSigningKey();
+  const hmac = crypto.createHmac("sha256", key).update(userId).digest("hex").slice(0, 16);
+  return `${userId}.${hmac}`;
+}
+
+export function verifyOAuthState(state) {
+  if (!state || !state.includes(".")) return null;
+  const lastDot = state.lastIndexOf(".");
+  const userId = state.slice(0, lastDot);
+  const sig = state.slice(lastDot + 1);
+  const key = getStateSigningKey();
+  const expected = crypto.createHmac("sha256", key).update(userId).digest("hex").slice(0, 16);
+  if (sig.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  return userId;
 }
 
 export function getAuthUrl(userId) {
@@ -23,7 +47,7 @@ export function getAuthUrl(userId) {
     scope: "https://www.googleapis.com/auth/calendar.readonly",
     access_type: "offline",
     prompt: "consent",
-    state: userId,
+    state: signOAuthState(userId),
   });
 
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
@@ -47,7 +71,8 @@ export async function exchangeCode(code) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Token exchange failed: ${errorText}`);
+    console.error("Token exchange failed:", response.status, errorText);
+    throw new Error("Token exchange failed");
   }
 
   return response.json();
@@ -70,7 +95,8 @@ export async function refreshAccessToken(refreshToken) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Token refresh failed: ${errorText}`);
+    console.error("Token refresh failed:", response.status, errorText);
+    throw new Error("Token refresh failed");
   }
 
   return response.json();

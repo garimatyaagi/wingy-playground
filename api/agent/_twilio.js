@@ -35,9 +35,8 @@ function buildAbsoluteUrl(req) {
 export function validateTwilioSignature(req, formBody) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const signature = req.headers["x-twilio-signature"];
-  if (!authToken || !signature) return { checked: false, valid: true };
+  if (!authToken || !signature) return { checked: false, valid: false };
 
-  const enforce = String(process.env.TWILIO_ENFORCE_WEBHOOK_SIGNATURE || "false").toLowerCase() === "true";
   const url = buildAbsoluteUrl(req);
   const params = Object.entries(formBody || {})
     .filter(([key]) => key)
@@ -48,16 +47,13 @@ export function validateTwilioSignature(req, formBody) {
   });
 
   const computed = crypto.createHmac("sha1", authToken).update(data).digest("base64");
-  const valid = computed === signature;
+  const valid =
+    computed.length === signature.length &&
+    crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(signature));
   if (!valid) {
-    console.error("twilio signature mismatch", {
-      url,
-      computedPrefix: computed.slice(0, 8),
-      signaturePrefix: String(signature).slice(0, 8),
-      enforce,
-    });
+    console.error("twilio signature mismatch");
   }
-  return { checked: true, valid: enforce ? valid : true, rawValid: valid };
+  return { checked: true, valid };
 }
 
 export async function sendWhatsAppMessage({ to, text }) {

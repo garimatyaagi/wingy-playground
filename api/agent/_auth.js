@@ -1,0 +1,42 @@
+import { createClerkClient } from "@clerk/backend";
+
+const clerk = createClerkClient({
+  secretKey: process.env.CLERK_SECRET_KEY,
+});
+
+/**
+ * Extracts and verifies the Clerk JWT from the Authorization header.
+ * Returns the authenticated userId if valid, or null if not.
+ */
+export async function authenticateRequest(req) {
+  const authHeader = String(req.headers.authorization || "").trim();
+  if (!authHeader.startsWith("Bearer ")) return null;
+
+  const token = authHeader.slice(7).trim();
+  if (!token) return null;
+
+  try {
+    const payload = await clerk.verifyToken(token);
+    return payload?.sub || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Middleware-style helper: verifies auth and checks that the authenticated
+ * user matches the requested userId. Returns the verified userId or sends
+ * a 401/403 response and returns null.
+ */
+export async function requireAuth(req, res, requestedUserId) {
+  const authedUserId = await authenticateRequest(req);
+  if (!authedUserId) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  if (requestedUserId && authedUserId !== requestedUserId) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return authedUserId;
+}

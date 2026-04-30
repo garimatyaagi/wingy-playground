@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   fetchAgentDebug,
   getSupabaseAdmin,
@@ -15,8 +16,9 @@ import {
 function isDebugAuthorized(req) {
   const required = (process.env.AGENT_DEBUG_KEY || "").trim();
   if (!required) return false; // Block ALL access if key is not configured
-  const supplied = String(req.query?.key || req.headers["x-agent-debug-key"] || "").trim();
-  return supplied === required;
+  const supplied = String(req.headers["x-agent-debug-key"] || "").trim();
+  if (!supplied || supplied.length !== required.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(required));
 }
 
 export default async function handler(req, res) {
@@ -102,7 +104,7 @@ export default async function handler(req, res) {
       goalSelect: { data: goalResult.data, error: goalResult.error },
       goalInsert: { data: goalInsert.data, error: goalInsert.error },
       stepInsert: stepInsert ? { data: stepInsert.data, error: stepInsert.error } : "skipped_no_goal",
-      supabaseKeyType: process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : "anon_or_vite",
+      supabaseKeyType: "redacted",
     });
   }
 

@@ -1612,96 +1612,321 @@ select {
   flex-wrap: wrap;
 }
 
-.yearMiniStats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
+/* ─── Goals Accordion ─── */
 
-.yearMiniStats > div {
-  border-radius: 14px;
-  border: 1px solid rgba(26, 26, 46, 0.08);
-  background: rgba(255, 251, 246, 0.92);
-  padding: 10px;
-  display: grid;
-  gap: 4px;
-}
-
-.yearMiniStats span {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.yearMiniStats strong {
-  font-size: 24px;
-  line-height: 1;
-}
-
-.goalCompactGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.goalCompactCard {
-  border: 1px solid rgba(26, 26, 46, 0.08);
-}
-
-.goalCompactTop {
+.goalsHeaderTop {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.goalsHeaderStats {
+  display: flex;
+  align-items: center;
   gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-.goalCompactTop h3 {
-  font-size: 26px;
+.goalsHeaderStats strong {
+  color: var(--text);
+  font-size: 15px;
 }
 
-.goalCompactActions {
+.goalStatDivider {
+  width: 1px;
+  height: 14px;
+  background: rgba(26, 26, 46, 0.12);
+}
+
+.goalAccordionList {
+  display: grid;
+  gap: 8px;
+}
+
+.goalAccordion {
+  transition: box-shadow 0.2s ease;
+}
+
+.goalAccordionOpen {
+  box-shadow: 0 2px 12px rgba(26, 26, 46, 0.07);
+}
+
+.goalAccordionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.goalAccordionLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.goalChevron {
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.goalChevronOpen {
+  transform: rotate(90deg);
+}
+
+.goalChevronSmall {
+  font-size: 8px;
+}
+
+.goalAccordionTitle {
+  font-size: 18px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goalTitleInput {
+  font-size: 18px;
+  font-weight: 650;
+  max-width: 260px;
+}
+
+.goalAccordionRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.goalTaskCount {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.goalProgressBarSmall {
+  width: 80px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(26, 26, 46, 0.08);
+  overflow: hidden;
+}
+
+.goalProgressBarSmall i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(111, 123, 104, 0.7), var(--accent));
+  transition: width 0.3s ease;
+}
+
+.goalProgressPct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* Next action teaser (collapsed state) */
+.goalNextTeaser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 0 26px;
+}
+
+.goalNextLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.goalNextTeaser .textLink {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded body */
+.goalAccordionBody {
+  padding-top: 12px;
+  display: grid;
+  gap: 14px;
+}
+
+.goalActionBar {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  padding-left: 26px;
 }
 
-.goalMilestoneLine {
-  font-size: 14px;
-  color: #413a37;
+/* Decomposition tree */
+.goalDecompTree {
+  padding-left: 14px;
 }
 
-.goalCountsRow {
+.goalEmptyTree {
+  padding-left: 12px;
+}
+
+.goalTreeNode {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0;
+  position: relative;
+}
+
+.goalTreeNode:not(.goalTreeNodeLast)::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 18px;
+  bottom: 0;
+  width: 1px;
+  background: rgba(26, 26, 46, 0.1);
+}
+
+.goalTreeConnector {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 13px;
+  justify-content: center;
+  padding-top: 6px;
 }
 
+.goalTreeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(26, 26, 46, 0.15);
+  background: #fff;
+}
+
+.goalTreeDot--active {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(49, 57, 251, 0.12);
+}
+
+.goalTreeDot--checkCircle {
+  border-color: rgba(111, 123, 104, 0.5);
+  background: rgba(111, 123, 104, 0.3);
+}
+
+.goalTreeDot--overdue {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.15);
+}
+
+.goalTreeContent {
+  padding: 4px 0 14px 6px;
+}
+
+.goalTreeTaskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.goalTreeTaskTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.goalTreeBadge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.goalTreeBadge--pending {
+  background: rgba(26, 26, 46, 0.06);
+  color: var(--muted);
+}
+
+.goalTreeBadge--today {
+  background: rgba(49, 57, 251, 0.1);
+  color: var(--accent);
+}
+
+.goalTreeBadge--overdue {
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+}
+
+.goalTreeBadge--done {
+  background: rgba(111, 123, 104, 0.12);
+  color: #4a6341;
+}
+
+.goalTreeActions {
+  display: flex;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.goalTreeTaskDone {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.goalTreeNodeDone .goalTreeContent {
+  padding-bottom: 8px;
+}
+
+/* Completed section */
+.goalCompletedSection {
+  padding-left: 0;
+  margin-top: 2px;
+}
+
+.goalCompletedToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.goalCompletedToggle:hover {
+  color: var(--text);
+}
+
+.goalCompletedList {
+  padding-top: 4px;
+}
+
+/* Quick-add row */
 .goalQuickAddRow {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.goalTaskPreviewList {
-  display: grid;
-  gap: 8px;
-}
-
-.goalTaskPreviewRow {
-  border-radius: 12px;
-  border: 1px solid rgba(26, 26, 46, 0.08);
-  background: rgba(255, 252, 247, 0.9);
-  padding: 8px;
-  display: grid;
-  gap: 8px;
-}
-
-.goalTaskPreviewActions {
-  display: flex;
-  gap: 6px;
+  padding-left: 26px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -1857,10 +2082,18 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .goalCompactGrid,
-  .yearMiniStats,
   .settingsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .goalAccordionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .goalAccordionRight {
+    padding-left: 26px;
   }
 }
 

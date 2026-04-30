@@ -1,14 +1,13 @@
-import { createClerkClient } from "@clerk/backend";
-
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
-});
+import { verifyToken } from "@clerk/backend";
 
 /**
  * Extracts and verifies the Clerk JWT from the Authorization header.
  * Returns the authenticated userId if valid, or null if not.
  */
 export async function authenticateRequest(req) {
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) return null;
+
   const authHeader = String(req.headers.authorization || "").trim();
   if (!authHeader.startsWith("Bearer ")) return null;
 
@@ -16,7 +15,7 @@ export async function authenticateRequest(req) {
   if (!token) return null;
 
   try {
-    const payload = await clerk.verifyToken(token);
+    const payload = await verifyToken(token, { secretKey });
     return payload?.sub || null;
   } catch {
     return null;

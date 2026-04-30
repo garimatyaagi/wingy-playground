@@ -628,6 +628,25 @@ export default function App() {
     };
   }, [user?.id, supabase, refreshKey]);
 
+  // Auto-decompose goals that have 0 tasks (once per session per goal)
+  const decomposedGoalIds = useState(() => new Set())[0];
+  useEffect(() => {
+    if (!user?.id || loading) return;
+    const bareGoals = goals.filter(
+      (g) =>
+        g.status !== "archived" &&
+        (g.tasks || []).length === 0 &&
+        !decomposedGoalIds.has(g.id) &&
+        !["inbox / unassigned", "general", "inbox", "unassigned"].includes(
+          (g.title || "").toLowerCase().trim()
+        )
+    );
+    for (const g of bareGoals) {
+      decomposedGoalIds.add(g.id);
+      decomposeGoalInBackground(g.title).catch(() => {});
+    }
+  }, [goals, user?.id, loading]);
+
   useEffect(() => {
     if (!user?.id) return;
     void loadAgentSettingsFromServer();

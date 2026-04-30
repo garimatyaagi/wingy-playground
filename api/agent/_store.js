@@ -64,6 +64,9 @@ export function getSupabaseAdmin() {
     });
     return null;
   }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn("SUPABASE_SERVICE_ROLE_KEY not set — backend is using anon key, RLS will block writes to backend-only tables");
+  }
   cachedClient = createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: {
       persistSession: false,

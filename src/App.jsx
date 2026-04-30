@@ -1947,7 +1947,10 @@ export default function App() {
           body: JSON.stringify(payload || {}),
         });
         const data = await response.json().catch(() => null);
-        if (!response.ok || !data) continue;
+        if (!response.ok || !data) {
+          console.error("Agent endpoint error:", { endpoint, status: response.status, data });
+          continue;
+        }
         return data;
       } catch (error) {
         console.error("Agent endpoint failed:", { endpoint, error, path });
@@ -2441,7 +2444,8 @@ export default function App() {
     };
     const response = await callAgentEndpoint("/api/agent/settings", payload);
     if (!response?.ok && !response?.profile) {
-      showToast("Saved locally, but server sync failed.", "error");
+      const errDetail = response?.error || response?.reason || "";
+      showToast(`Server sync failed${errDetail ? ": " + errDetail : ""}. Check console for details.`, "error");
       return;
     }
     if (response?.profile) {

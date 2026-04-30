@@ -39,6 +39,11 @@ export default async function handler(req, res) {
   const userId = await requireAuth(req, res, requestedUserId);
   if (!userId) return;
 
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("settings_save_blocked: SUPABASE_SERVICE_ROLE_KEY not configured");
+    return res.status(500).json({ error: "Server misconfigured: missing SUPABASE_SERVICE_ROLE_KEY" });
+  }
+
   const result = await upsertAgentProfile({
     userId,
     whatsappNumber: body.whatsAppTo || "",

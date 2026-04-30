@@ -418,6 +418,8 @@ export async function createTaskStep(userId, taskPayload) {
     completion_confidence: Number.isFinite(taskPayload.completionConfidence)
       ? taskPayload.completionConfidence
       : null,
+    long_term_goal_id: taskPayload.longTermGoalId || null,
+    milestone_id: taskPayload.milestoneId || null,
     total_estimated_minutes: Number.isFinite(taskPayload.totalEstimatedMinutes) ? taskPayload.totalEstimatedMinutes : null,
     daily_allocated_minutes: Number.isFinite(taskPayload.dailyAllocatedMinutes) ? taskPayload.dailyAllocatedMinutes : null,
     estimated_days: Number.isFinite(taskPayload.estimatedDays) ? taskPayload.estimatedDays : null,
@@ -1365,4 +1367,176 @@ export async function updateMessageCaptureMedia(captureId, { mediaUrl, transcrip
   if (mediaType) patch.media_type = mediaType;
   if (Object.keys(patch).length === 0) return;
   await supabase.from("message_captures").update(patch).eq("id", captureId);
+}
+
+// ─── Long-Term Goals ───
+
+export async function createLongTermGoal(userId, payload) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const row = {
+    user_id: userId,
+    title: payload.title,
+    description: payload.description || "",
+    scope: payload.scope || "yearly",
+    target_date: payload.targetDate || null,
+    status: "active",
+    priority: Number.isFinite(payload.priority) ? payload.priority : 2,
+  };
+  const { data, error } = await supabase
+    .from("long_term_goals")
+    .insert(row)
+    .select("id, user_id, title, description, scope, target_date, status, priority, created_at")
+    .single();
+  if (error) {
+    if (isMissingTable(error)) {
+      console.error("long_term_goals table missing — run migration 005");
+      return null;
+    }
+    console.error("createLongTermGoal failed", { error, userId });
+    return null;
+  }
+  return data;
+}
+
+export async function listActiveLongTermGoals(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase
+    .from("long_term_goals")
+    .select("id, user_id, title, description, scope, target_date, status, priority, created_at, updated_at")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("priority", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) {
+    if (!isMissingTable(error)) console.error("listActiveLongTermGoals failed", { error, userId });
+    return [];
+  }
+  return data || [];
+}
+
+export async function updateLongTermGoal(goalId, updates) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !goalId) return null;
+  const patch = { updated_at: new Date().toISOString() };
+  if (updates.title !== undefined) patch.title = updates.title;
+  if (updates.description !== undefined) patch.description = updates.description;
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.priority !== undefined) patch.priority = updates.priority;
+  if (updates.targetDate !== undefined) patch.target_date = updates.targetDate;
+  const { data, error } = await supabase
+    .from("long_term_goals")
+    .update(patch)
+    .eq("id", goalId)
+    .select("id, title, status, priority, target_date, updated_at")
+    .single();
+  if (error) {
+    console.error("updateLongTermGoal failed", { error, goalId });
+    return null;
+  }
+  return data;
+}
+
+export async function createGoalMilestone(goalId, userId, payload) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !goalId) return null;
+  const row = {
+    goal_id: goalId,
+    user_id: userId,
+    title: payload.title,
+    description: payload.description || "",
+    target_date: payload.targetDate || null,
+    status: "pending",
+    order_index: Number.isFinite(payload.orderIndex) ? payload.orderIndex : 0,
+  };
+  const { data, error } = await supabase
+    .from("goal_milestones")
+    .insert(row)
+    .select("id, goal_id, title, description, target_date, status, order_index, created_at")
+    .single();
+  if (error) {
+    if (isMissingTable(error)) {
+      console.error("goal_milestones table missing — run migration 005");
+      return null;
+    }
+    console.error("createGoalMilestone failed", { error, goalId });
+    return null;
+  }
+  return data;
+}
+
+export async function listMilestonesForGoal(goalId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !goalId) return [];
+  const { data, error } = await supabase
+    .from("goal_milestones")
+    .select("id, goal_id, title, description, target_date, status, order_index, created_at, completed_at")
+    .eq("goal_id", goalId)
+    .order("order_index", { ascending: true });
+  if (error) {
+    if (!isMissingTable(error)) console.error("listMilestonesForGoal failed", { error, goalId });
+    return [];
+  }
+  return data || [];
+}
+
+export async function updateMilestone(milestoneId, updates) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !milestoneId) return null;
+  const patch = {};
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.title !== undefined) patch.title = updates.title;
+  if (updates.status === "completed") patch.completed_at = new Date().toISOString();
+  if (updates.status === "in_progress" && !patch.completed_at) patch.completed_at = null;
+  const { data, error } = await supabase
+    .from("goal_milestones")
+    .update(patch)
+    .eq("id", milestoneId)
+    .select("id, goal_id, title, status, order_index, completed_at")
+    .single();
+  if (error) {
+    console.error("updateMilestone failed", { error, milestoneId });
+    return null;
+  }
+  return data;
+}
+
+export async function getGoalDailyTasks(userId, date) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const dateKey = typeof date === "string" ? date : date.toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("task_steps")
+    .select("id, text, status, done, long_term_goal_id, milestone_id, due_date, scheduled_date, created_at, estimate_minutes, effort_type")
+    .eq("user_id", userId)
+    .not("long_term_goal_id", "is", null)
+    .eq("status", "active")
+    .or(`scheduled_date.eq.${dateKey},due_date.eq.${dateKey}`)
+    .limit(10);
+  if (error) {
+    if (!isMissingTable(error) && !isMissingColumn(error)) {
+      console.error("getGoalDailyTasks failed", { error, userId });
+    }
+    return [];
+  }
+  return data || [];
+}
+
+export async function countGoalTaskCompletions(userId, goalId, sinceDaysAgo = 7) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return { total: 0, completed: 0 };
+  const since = new Date(Date.now() - sinceDaysAgo * 86400000).toISOString();
+  const { data, error } = await supabase
+    .from("task_steps")
+    .select("id, done, status")
+    .eq("user_id", userId)
+    .eq("long_term_goal_id", goalId)
+    .gte("created_at", since);
+  if (error) return { total: 0, completed: 0 };
+  const rows = data || [];
+  return {
+    total: rows.length,
+    completed: rows.filter((r) => r.done || r.status === "done").length,
+  };
 }

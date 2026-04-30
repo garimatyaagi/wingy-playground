@@ -5,6 +5,12 @@ import {
   saveDailyPlan,
   fetchRecentContext,
   updateTaskStep,
+  listActiveLongTermGoals,
+  listMilestonesForGoal,
+  createTaskStep,
+  countGoalTaskCompletions,
+  getGoalDailyTasks,
+  getCoreMemory,
   listTaskOccurrences,
   getMultiDayProgress,
 } from "./_store.js";
@@ -1070,6 +1076,15 @@ export async function recomputeDailyPlan({
     console.error("buildOptimizedSchedule failed, proceeding without schedule:", err.message);
   }
 
+  // Generate goal-derived tasks for today (non-blocking — if it fails, daily plan still works)
+  let goalTasks = [];
+  try {
+    const goalResult = await generateGoalDailyTasks({ userId, date: targetDate });
+    goalTasks = goalResult.generated || goalResult.existing || [];
+  } catch (e) {
+    console.error("generateGoalDailyTasks in recomputeDailyPlan failed", e.message);
+  }
+
   return {
     plan:
       plan || {
@@ -1093,6 +1108,7 @@ export async function recomputeDailyPlan({
     deferred,
     nudgeCandidates,
     dailyCapacityMinutes,
+    goalTasks,
     optimizedSchedule,
   };
 }
@@ -1127,6 +1143,23 @@ export function buildRichResponse(actionsTaken, ctx, calendarEvents = []) {
       lines.push(`Cancelled: "${action.task.title}"`);
     } else if (action.type === "goal_created" && action.goal) {
       lines.push(`Goal captured: "${action.goal.title}"`);
+    } else if (action.type === "long_term_goal_created" && action.goal) {
+      lines.push(`Long-term goal set: "${action.goal.title}"`);
+      if (action.milestones?.length > 0) {
+        lines.push(`\nBroken down into ${action.milestones.length} milestones:`);
+        for (const m of action.milestones.slice(0, 6)) {
+          lines.push(`  ${m.order_index + 1}. ${m.title}`);
+        }
+      }
+      if (action.decomposition?.dailyHabitSuggestion) {
+        lines.push(`\nDaily habit: ${action.decomposition.dailyHabitSuggestion}`);
+      }
+      if (action.decomposition?.weeklyCheckpoint) {
+        lines.push(`Weekly check: ${action.decomposition.weeklyCheckpoint}`);
+      }
+      lines.push(`\nI'll start weaving daily tasks from this goal into your morning plan.`);
+    } else if (action.type === "long_term_goal_limit") {
+      lines.push(action.message);
     } else if (action.type === "bot_paused") {
       return `Bot paused until ${action.resumeTime}. Send "resume bot" to reactivate.`;
     } else if (action.type === "bot_resumed") {
@@ -1407,4 +1440,98 @@ export async function generateNudge({
     relatedTaskIds: [target.id],
     reason: "next_best_incomplete",
   };
+}
+
+// ─── Long-Term Goal Daily Task Generation ───
+
+function shouldGenerateForGoalToday(goal, dayOfWeek) {
+  // Priority 1: daily, Priority 2: Mon/Wed/Fri, Priority 3: Monday only
+  if (goal.priority === 1) return true;
+  if (goal.priority === 2) return [1, 3, 5].includes(dayOfWeek); // Mon, Wed, Fri
+  if (goal.priority === 3) return dayOfWeek === 1; // Monday
+  return false;
+}
+
+export async function generateGoalDailyTasks({ userId, date = new Date() }) {
+  const targetDate = typeof date === "string" ? new Date(date) : date;
+  const dateKey = targetDate.toISOString().split("T")[0];
+  const dayOfWeek = targetDate.getDay(); // 0=Sun, 1=Mon...
+
+  // Check if we already generated goal tasks for today
+  const existing = await getGoalDailyTasks(userId, dateKey);
+  if (existing.length > 0) {
+    return { generated: [], existing, skipped: "already_generated" };
+  }
+
+  const goals = await listActiveLongTermGoals(userId);
+  if (goals.length === 0) return { generated: [], existing: [], skipped: "no_active_goals" };
+
+  // Fetch core memory for implementation intentions
+  let routineHint = "";
+  try {
+    const memories = await getCoreMemory(userId);
+    const routineMemory = memories.find((m) =>
+      /routine|morning|habit|exercise|schedule|wake/i.test(m.key)
+    );
+    if (routineMemory) routineHint = routineMemory.value;
+  } catch { /* ignore */ }
+
+  const generated = [];
+  const MAX_GOAL_TASKS_PER_DAY = 3;
+
+  for (const goal of goals) {
+    if (generated.length >= MAX_GOAL_TASKS_PER_DAY) break;
+    if (!shouldGenerateForGoalToday(goal, dayOfWeek)) continue;
+
+    // Check recent completion rate for adaptive difficulty
+    const stats = await countGoalTaskCompletions(userId, goal.id, 7);
+    const completionRate = stats.total > 0 ? stats.completed / stats.total : 1;
+
+    // If completion rate is very low, skip generating (will trigger recalibrate in weekly review)
+    if (stats.total >= 3 && completionRate < 0.3) continue;
+
+    // Find the current active milestone
+    const milestones = await listMilestonesForGoal(goal.id);
+    const currentMilestone = milestones.find((m) => m.status === "pending" || m.status === "in_progress");
+    if (!currentMilestone) continue;
+
+    // Build the task title with goal context
+    const taskPrefix = routineHint
+      ? `[${goal.title}] `
+      : `[${goal.title}] `;
+
+    // Adaptive: reduce estimated time if completion rate is low
+    let estimatedMinutes = 20;
+    if (completionRate < 0.5 && stats.total >= 2) {
+      estimatedMinutes = 10; // Shrink to tiny habit
+    }
+
+    const taskTitle = `${taskPrefix}${currentMilestone.title}`;
+
+    const task = await createTaskStep(userId, {
+      title: taskTitle,
+      dueDate: dateKey,
+      scheduledDate: dateKey,
+      estimatedMinutes,
+      urgency: goal.priority === 1 ? 3 : 2,
+      importance: goal.priority === 1 ? 4 : 3,
+      effortType: "deep_work",
+      source: "goal_planner",
+      goalName: goal.title,
+      longTermGoalId: goal.id,
+      milestoneId: currentMilestone.id,
+    });
+
+    if (task) {
+      generated.push({
+        ...task,
+        goalTitle: goal.title,
+        milestoneTitle: currentMilestone.title,
+        completionRate,
+        adaptedMinutes: estimatedMinutes,
+      });
+    }
+  }
+
+  return { generated, existing: [], goals: goals.length };
 }

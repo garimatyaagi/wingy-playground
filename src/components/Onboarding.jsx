@@ -107,7 +107,7 @@ export default function Onboarding({ userId, getToken, onComplete, agentWhatsApp
   useEffect(() => {
     if (step !== 6 || firstDayPlan) return;
     setLoading(true);
-    apiCall("/api/agent/onboarding-kickoff", { action: "generate_first_day" })
+    apiCall("/api/agent/settings", { action: "generate_first_day" })
       .then((data) => {
         if (data?.plan) setFirstDayPlan(data.plan);
       })
@@ -128,7 +128,7 @@ export default function Onboarding({ userId, getToken, onComplete, agentWhatsApp
     if (validGoals.length === 0) return;
     setGoalsCreating(true);
     try {
-      await apiCall("/api/agent/onboarding-kickoff", {
+      await apiCall("/api/agent/settings", {
         action: "create_goals",
         goals: validGoals.map((g) => ({
           title: g.title.trim(),
@@ -158,7 +158,7 @@ export default function Onboarding({ userId, getToken, onComplete, agentWhatsApp
       await saveSettings({ whatsAppTo: cleaned });
       // Small delay to ensure profile is saved before kickoff reads it
       await new Promise((r) => setTimeout(r, 500));
-      await apiCall("/api/agent/onboarding-kickoff", { action: "start_whatsapp" });
+      await apiCall("/api/agent/settings", { action: "start_whatsapp" });
       setWhatsAppOptedIn(true);
       setStep(5);
     } catch { /* continue */ }
@@ -446,7 +446,7 @@ export default function Onboarding({ userId, getToken, onComplete, agentWhatsApp
                   className="ghostButton mini"
                   onClick={async () => {
                     pollStartRef.current = Date.now();
-                    await apiCall("/api/agent/onboarding-kickoff", { action: "start_whatsapp" });
+                    await apiCall("/api/agent/settings", { action: "start_whatsapp" });
                   }}
                 >
                   Resend intro message

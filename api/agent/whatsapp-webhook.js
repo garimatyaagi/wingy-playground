@@ -50,7 +50,7 @@ import {
 import { getUpcomingEvents } from "./_calendar.js";
 import { llmDecomposeGoal } from "./_llm.js";
 import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
-import { handleOnboardingChat } from "./onboarding-chat.js";
+import { handleOnboardingChat } from "./_onboarding-chat.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";

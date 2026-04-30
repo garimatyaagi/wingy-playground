@@ -24,20 +24,14 @@ import {
   updateMessageCaptureBatch,
   getOrCreateSessionId,
   updateMessageCaptureMedia,
-  getPendingPulsesForUser,
-  markPulseFired,
 } from "./_store.js";
 import {
   buildMessageContext,
-  buildEveningCheckin,
   buildRichResponse,
-  generateNudge,
   parseEveningResponse,
   parseMessageIntentWithLLM,
-  recomputeDailyPlan,
   resolveTaskMatch,
 } from "./_engine.js";
-import { llmNudge, llmEveningCheckin, llmMorningBrief } from "./_llm.js";
 import {
   bodyToForm,
   twimlMessage,
@@ -67,69 +61,6 @@ async function fetchCalendarContext(userId) {
     return await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 4);
   } catch {
     return [];
-  }
-}
-
-// Fire any pending scheduled nudge pulses for this user.
-// Called after processing the user's message so nudges piggyback on user activity.
-async function firePendingNudgePulses(userId, whatsAppNumber) {
-  if (!userId || !whatsAppNumber) return;
-  try {
-    const pendingPulses = await getPendingPulsesForUser(userId);
-    if (pendingPulses.length === 0) return;
-
-    const profile = await getAgentProfileByUserId(userId);
-    if (!profile) return;
-
-    const { getUpcomingEvents } = await import("./_calendar.js");
-
-    for (const pulse of pendingPulses) {
-      const context = pulse.context || "";
-      const pulseType = pulse.pulse_type || "";
-
-      // Handle scheduled nudge pulses (created by morning scheduler)
-      if (context.startsWith("scheduled_nudge:")) {
-        const messageType = context.replace("scheduled_nudge:", "");
-        try {
-          const calendarEvents = profile.google_refresh_token
-            ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
-            : [];
-          const planState = await recomputeDailyPlan({ userId, date: new Date(), calendarEvents, profile });
-
-          let body = null;
-          if (messageType === "midday_nudge" || messageType === "afternoon_followup") {
-            body = await llmNudge(planState, messageType, profile, calendarEvents).catch(() => null);
-            if (!body) {
-              const nudge = await generateNudge({ userId, tone: profile.tone || "firm", now: new Date() });
-              body = nudge.body;
-            }
-          } else if (messageType === "evening_checkin") {
-            const completedToday = (planState.scoredTasks || []).filter(
-              (t) => t.done && t.completedAt && t.completedAt.startsWith(new Date().toISOString().slice(0, 10))
-            );
-            body = await llmEveningCheckin(planState, completedToday, profile, calendarEvents).catch(() => null);
-            if (!body) body = buildEveningCheckin({ planState });
-          }
-
-          if (body) {
-            await sendWhatsAppMessage({ to: whatsAppNumber, text: body });
-            await logAgentMessage({
-              userId,
-              type: messageType,
-              body,
-              relatedTaskIds: planState.topPriorities.map((t) => t.id).slice(0, 5),
-              metadata: { reason: `pulse_fired:${messageType}`, pulseId: pulse.id },
-            });
-          }
-        } catch (err) {
-          console.error("firePendingNudgePulses generate failed", { userId, messageType, error: err.message });
-        }
-      }
-
-      await markPulseFired(pulse.id);
-    }
-  } catch (err) {
-    console.error("firePendingNudgePulses failed", { userId, error: err.message });
   }
 }
 
@@ -848,14 +779,6 @@ export default async function handler(req, res) {
       clarificationRequested,
       result,
     });
-
-    // Fire any pending scheduled nudges (midday/afternoon/evening) for this user.
-    // These are created by the morning cron since Vercel Hobby only runs cron once/day.
-    try {
-      await firePendingNudgePulses(userId, profile?.whatsAppNumber || inbound?.profile?.whatsAppNumber);
-    } catch (err) {
-      console.error("pulse firing failed", { userId, error: err.message });
-    }
 
     if (lockAcquired) await releaseMessageLock(userId).catch(() => {});
     if (batchId) await markBatchProcessed(batchId).catch(() => {});

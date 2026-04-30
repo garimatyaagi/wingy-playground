@@ -3173,3 +3173,416 @@ select {
   padding-top: 16px;
   animation: surfaceFadeIn 300ms ease;
 }
+
+/* ─── Onboarding Wizard ─── */
+
+.onboardingWizard {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.onboardingProgress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--border);
+  z-index: 100;
+}
+
+.onboardingProgressFill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 400ms var(--ease-premium);
+  border-radius: 0 2px 2px 0;
+}
+
+.onboardingContainer {
+  width: min(560px, 100%);
+  margin: 0 auto;
+  padding: 80px 24px 60px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.onboardingBack {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 12px;
+  align-self: flex-start;
+}
+.onboardingBack:hover {
+  color: var(--text);
+}
+
+.onboardingStep {
+  display: flex;
+  flex-direction: column;
+  animation: surfaceFadeIn 400ms ease both;
+}
+
+.onboardingTitle {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.onboardingSubtitle {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+  line-height: 1.5;
+}
+
+/* Selection cards (intent + energy) */
+.onboardingCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.onboardingEnergyCards {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.onboardingCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.onboardingCard:hover {
+  border-color: var(--border-strong);
+}
+.onboardingCard.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.onboardingCard strong {
+  font-size: 14px;
+  color: var(--text);
+}
+.onboardingCardEmoji {
+  font-size: 24px;
+}
+.onboardingCardDesc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Goals step */
+.onboardingGoalInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.onboardingGoalRow {
+  display: flex;
+  gap: 8px;
+}
+.onboardingGoalRow .textInput {
+  flex: 1;
+}
+.onboardingDateInput {
+  max-width: 160px;
+}
+
+.onboardingTemplates {
+  margin-bottom: 28px;
+}
+.onboardingTemplateLabel {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.onboardingTemplateChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.onboardingChip {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.onboardingChip:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Schedule step */
+.onboardingTimeRow {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.onboardingTimeField {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.onboardingEnergyLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+/* Calendar step */
+.onboardingCalendarCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 24px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+.onboardingCalendarConnected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #16a34a;
+  font-weight: 600;
+  font-size: 16px;
+}
+.onboardingCheckmark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* WhatsApp step */
+.onboardingWhatsAppSetup {
+  margin-bottom: 28px;
+}
+
+/* Waiting / polling */
+.onboardingWaiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.onboardingWaiting p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.onboardingPulse {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: onboardingPulseAnim 1.8s ease-in-out infinite;
+}
+
+@keyframes onboardingPulseAnim {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.onboardingTimeoutHint {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 20px;
+  text-align: center;
+}
+.onboardingTimeoutHint p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+/* First day plan */
+.onboardingFirstDay {
+  margin-bottom: 28px;
+}
+
+.onboardingDaySection {
+  margin-bottom: 20px;
+}
+.onboardingDaySection h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.onboardingTimeBlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  animation: surfaceFadeIn 300ms ease both;
+}
+.onboardingTimeBlock:nth-child(2) { animation-delay: 80ms; }
+.onboardingTimeBlock:nth-child(3) { animation-delay: 160ms; }
+.onboardingTimeBlock:nth-child(4) { animation-delay: 240ms; }
+.onboardingTimeBlock:nth-child(5) { animation-delay: 320ms; }
+
+.onboardingBlockTime {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 60px;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboardingBlockBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-glow);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.onboardingGoalTag {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.onboardingCalEvent {
+  border-left: 3px solid var(--support);
+}
+
+.onboardingTaskBlock {
+  border-left: 3px solid var(--accent);
+}
+
+.onboardingEmptyPlan {
+  padding: 32px 24px;
+  text-align: center;
+}
+.onboardingEmptyPlan p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Skip link */
+.onboardingSkip {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 16px;
+  padding: 0;
+  align-self: center;
+}
+.onboardingSkip:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+/* CTA buttons in wizard */
+.onboardingStep > .primaryButton {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.onboardingStep > .ghostButton {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+/* Dark mode */
+.nightMode .onboardingWizard {
+  background: #141618;
+}
+.nightMode .onboardingCard {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.nightMode .onboardingCard.selected {
+  border-color: #6B7BFF;
+  box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.12);
+}
+.nightMode .onboardingChip {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+.nightMode .onboardingChip:hover {
+  background: rgba(107, 123, 255, 0.1);
+  border-color: #6B7BFF;
+  color: #6B7BFF;
+}
+.nightMode .onboardingTimeBlock {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.nightMode .onboardingCheckmark {
+  background: rgba(22, 163, 106, 0.15);
+}
+
+/* Responsive */
+@media (max-width: 560px) {
+  .onboardingCards {
+    grid-template-columns: 1fr;
+  }
+  .onboardingEnergyCards {
+    grid-template-columns: 1fr;
+  }
+  .onboardingGoalRow {
+    flex-direction: column;
+  }
+  .onboardingDateInput {
+    max-width: 100%;
+  }
+  .onboardingTimeRow {
+    flex-direction: column;
+  }
+  .onboardingContainer {
+    padding: 60px 16px 40px;
+  }
+  .onboardingTitle {
+    font-size: 24px;
+  }
+}

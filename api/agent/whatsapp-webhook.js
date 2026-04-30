@@ -50,6 +50,7 @@ import {
 import { getUpcomingEvents } from "./_calendar.js";
 import { llmDecomposeGoal } from "./_llm.js";
 import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
+import { handleOnboardingChat } from "./_onboarding-chat.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";
@@ -185,6 +186,18 @@ export default async function handler(req, res) {
     }
 
     userId = inbound.userId;
+
+    // ─── Onboarding Conversation Intercept ───
+    if (rawText.trim()) {
+      try {
+        const onboardProfile = await getAgentProfileByUserId(userId);
+        if (onboardProfile && !onboardProfile.onboardingCompleted && onboardProfile.onboardingStep > 0) {
+          return handleOnboardingChat(userId, rawText, onboardProfile, res);
+        }
+      } catch (err) {
+        console.error("onboarding intercept check failed (continuing)", err.message);
+      }
+    }
 
     // ─── Voice Message Transcription ───
     const numMedia = parseInt(form.NumMedia || form.numMedia || "0", 10);

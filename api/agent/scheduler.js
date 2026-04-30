@@ -140,13 +140,15 @@ export default async function handler(req, res) {
     };
 
     if (forceType === "morning_brief" || shouldSend(profile, "morning_brief", local, sentTypes)) {
-      const planState = await recomputeDailyPlan({
-        userId: profile.userId,
-        date: now,
-      });
       const calendarEvents = profile.google_refresh_token
         ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
+      const planState = await recomputeDailyPlan({
+        userId: profile.userId,
+        date: now,
+        calendarEvents,
+        profile,
+      });
       const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
       const body = llmBody || buildMorningBrief({
         planState,

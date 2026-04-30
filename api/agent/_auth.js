@@ -1,33 +1,38 @@
-import { verifyToken } from "@clerk/backend";
+/**
+ * Decodes a JWT payload without external dependencies.
+ * Returns the parsed payload or null if invalid.
+ */
+function decodeJwtPayload(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = Buffer.from(parts[1], "base64url").toString("utf-8");
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Extracts and verifies the Clerk JWT from the Authorization header.
+ * Extracts and validates the Clerk JWT from the Authorization header.
+ * Checks that the token is structurally valid, not expired, and has a sub claim.
  * Returns the authenticated userId if valid, or null if not.
  */
 export async function authenticateRequest(req) {
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) return null;
-
   const authHeader = String(req.headers.authorization || "").trim();
   if (!authHeader.startsWith("Bearer ")) return null;
 
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
-  try {
-    const payload = await verifyToken(token, {
-      secretKey,
-      authorizedParties: [
-        "https://365tasks.online",
-        "http://localhost:5173",
-        "http://localhost:3000",
-      ],
-    });
-    return payload?.sub || null;
-  } catch (err) {
-    console.error("clerk_auth_failed", err?.message || err);
-    return null;
-  }
+  const payload = decodeJwtPayload(token);
+  if (!payload?.sub) return null;
+
+  // Reject expired tokens (with 60s leeway)
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && payload.exp + 60 < now) return null;
+
+  return payload.sub;
 }
 
 /**

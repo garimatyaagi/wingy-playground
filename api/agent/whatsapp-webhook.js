@@ -73,6 +73,13 @@ export default async function handler(req, res) {
   let captureId = null;
   let userId = null;
   try {
+    // Clean up any stale message locks on every request
+    try {
+      const { getSupabaseAdmin } = await import("./_store.js");
+      const sb = getSupabaseAdmin();
+      if (sb) await sb.from("agent_message_locks").delete().lt("locked_at", new Date(Date.now() - 30000).toISOString());
+    } catch (_) {}
+
     const form = bodyToForm(req);
     const signature = validateTwilioSignature(req, form);
     if (!signature.valid) {
@@ -157,19 +164,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // ─── Per-User Message Lock (non-blocking on failure) ───
-    let lockAcquired = false;
-    try {
-      const lock = await acquireMessageLock(userId, messageSid);
-      lockAcquired = lock.acquired;
-      if (!lockAcquired) {
-        res.setHeader("Content-Type", "text/xml");
-        return res.status(200).send(twimlMessage(""));
-      }
-    } catch (e) {
-      console.error("message lock failed (continuing without lock)", e.message);
-      lockAcquired = false; // proceed without lock
-    }
+    // ─── Per-User Message Lock (disabled — caused stale locks blocking all messages) ───
+    const lockAcquired = false;
 
     // ─── Session Tracking (non-blocking) ───
     const profile = inbound.profile || await getAgentProfileByUserId(userId);
@@ -208,32 +204,8 @@ export default async function handler(req, res) {
       console.error("capture metadata update failed (continuing)", e.message);
     }
 
-    // ─── Message Debounce (non-blocking) ───
-    let batchId = null;
-    try {
-      const recentMsgs = await getRecentUnprocessedMessages(userId, 3000);
-      const otherRecent = recentMsgs.filter((m) => m.id !== captureId);
-      if (otherRecent.length > 0 && otherRecent[0].batch_id) {
-        if (captureId) await updateMessageCaptureBatch(captureId, otherRecent[0].batch_id, sessionId);
-        if (lockAcquired) await releaseMessageLock(userId);
-        res.setHeader("Content-Type", "text/xml");
-        return res.status(200).send(twimlMessage(""));
-      }
-      batchId = crypto.randomUUID();
-      if (captureId) await updateMessageCaptureBatch(captureId, batchId, sessionId);
-      // Brief wait for rapid follow-up messages
-      await new Promise((r) => setTimeout(r, 1500));
-      const batchMessages = await getRecentUnprocessedMessages(userId, 3000);
-      if (batchMessages.length > 1) {
-        const allTexts = batchMessages.map((m) => m.raw_text).filter(Boolean);
-        rawText = allTexts.join("\n");
-        for (const msg of batchMessages) {
-          if (msg.id !== captureId) await updateMessageCaptureBatch(msg.id, batchId, sessionId);
-        }
-      }
-    } catch (e) {
-      console.error("debounce failed (continuing with original message)", e.message);
-    }
+    // ─── Message Debounce (disabled for now — sleep was consuming timeout budget) ───
+    const batchId = null;
 
     // Handle greeting / activation messages — opens the 24h session window
     const greeting = rawText.toLowerCase().replace(/[^a-z]/g, "");

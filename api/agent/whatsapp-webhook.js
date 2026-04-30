@@ -111,18 +111,28 @@ export default async function handler(req, res) {
     const mediaType = String(form.MediaContentType0 || form.mediaContentType0 || "").trim();
     const mediaUrl = String(form.MediaUrl0 || form.mediaUrl0 || "").trim();
     let transcription = null;
-    if (numMedia > 0 && mediaType.startsWith("audio/") && mediaUrl) {
+    const isVoiceMessage = numMedia > 0 && mediaType.startsWith("audio/") && mediaUrl;
+    if (isVoiceMessage) {
+      console.log("voice message detected", { userId, mediaType, mediaUrl: mediaUrl.slice(0, 80), numMedia });
       try {
         const audioBuffer = await downloadTwilioMedia(mediaUrl);
         if (audioBuffer) {
           transcription = await transcribeAudio(audioBuffer, mediaType);
           if (transcription) {
             rawText = transcription;
-            console.log("voice transcription:", { userId, transcription: transcription.slice(0, 100) });
+          } else {
+            console.error("voice transcription returned null", { userId, mediaType, bufferSize: audioBuffer.length });
           }
+        } else {
+          console.error("downloadTwilioMedia returned null", { userId, mediaUrl: mediaUrl.slice(0, 80) });
         }
       } catch (err) {
-        console.error("voice transcription failed", { userId, error: err.message });
+        console.error("voice transcription failed", { userId, error: err.message, stack: err.stack?.slice(0, 300) });
+      }
+      // If transcription failed, tell the user
+      if (!rawText && !transcription) {
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage("I couldn't process that voice note. Please try again or send a text message."));
       }
     }
 

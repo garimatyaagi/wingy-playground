@@ -4,6 +4,10 @@ import {
   listAgentMessagesForDate,
   logAgentMessage,
   fetchOverdueTasks,
+  getPendingPulses,
+  markPulseFired,
+  getAgentProfileByUserId,
+  getBotPauseStatus,
 } from "./_store.js";
 import {
   buildEveningCheckin,
@@ -13,7 +17,7 @@ import {
   recomputeDailyPlan,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
-import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp } from "./_llm.js";
+import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 import { authenticateRequest } from "./_auth.js";
 
@@ -121,6 +125,9 @@ export default async function handler(req, res) {
 
   for (const profile of profiles) {
     if (!profile.autoplanEnabled) continue;
+    // Skip users whose bot is paused
+    const pausedUntil = await getBotPauseStatus(profile.userId);
+    if (pausedUntil) continue;
     const local = localTimeParts(now, profile.timezone || "Asia/Kolkata");
     const sentToday = await listAgentMessagesForDate(profile.userId, local.dateKey);
     const sentTypes = new Set((sentToday || []).map((entry) => entry.type));
@@ -279,10 +286,46 @@ export default async function handler(req, res) {
     report.push(profileReport);
   }
 
+  // ─── Process Pending Pulses ───
+  const pulseReport = [];
+  try {
+    const pendingPulses = await getPendingPulses();
+    for (const pulse of pendingPulses) {
+      // Skip if user's bot is paused
+      const pulsePaused = await getBotPauseStatus(pulse.user_id);
+      if (pulsePaused) {
+        await markPulseFired(pulse.id); // Don't fire late
+        continue;
+      }
+      const pulseProfile = await getAgentProfileByUserId(pulse.user_id);
+      if (!pulseProfile?.whatsAppNumber) {
+        await markPulseFired(pulse.id);
+        continue;
+      }
+      // Generate contextual follow-up using LLM
+      const pulseBody = await llmPulseMessage(pulse.context, pulseProfile).catch(() => null);
+      const body = pulseBody || `Quick check-in: ${pulse.context}`;
+      const sent = await sendAndLog({
+        userId: pulse.user_id,
+        to: pulseProfile.whatsAppNumber,
+        type: "pulse",
+        body,
+        relatedTaskIds: [],
+        metadata: { reason: "scheduled_pulse", pulseType: pulse.pulse_type, pulseId: pulse.id },
+      });
+      await markPulseFired(pulse.id);
+      pulseReport.push({ pulseId: pulse.id, userId: pulse.user_id, sent });
+    }
+  } catch (err) {
+    console.error("pulse processing failed", { error: err.message });
+  }
+
   return res.status(200).json({
     ok: true,
     ranAt: now.toISOString(),
     profiles: report.length,
+    pulses: pulseReport.length,
     report,
+    pulseReport,
   });
 }

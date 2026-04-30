@@ -4,14 +4,14 @@
     { "src": "/(.*)", "dest": "/index.html" }
   ],
   "functions": {
-    "api/agent/whatsapp-webhook.js": { "maxDuration": 30 },
-    "api/agent/scheduler.js": { "maxDuration": 30 },
+    "api/agent/whatsapp-webhook.js": { "maxDuration": 45 },
+    "api/agent/scheduler.js": { "maxDuration": 45 },
     "api/agent/debug.js": { "maxDuration": 30 }
   },
   "crons": [
     {
       "path": "/api/agent/scheduler",
-      "schedule": "0 3 * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

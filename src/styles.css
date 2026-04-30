@@ -1612,96 +1612,321 @@ select {
   flex-wrap: wrap;
 }
 
-.yearMiniStats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
+/* ─── Goals Accordion ─── */
 
-.yearMiniStats > div {
-  border-radius: 14px;
-  border: 1px solid rgba(26, 26, 46, 0.08);
-  background: rgba(255, 251, 246, 0.92);
-  padding: 10px;
-  display: grid;
-  gap: 4px;
-}
-
-.yearMiniStats span {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.yearMiniStats strong {
-  font-size: 24px;
-  line-height: 1;
-}
-
-.goalCompactGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.goalCompactCard {
-  border: 1px solid rgba(26, 26, 46, 0.08);
-}
-
-.goalCompactTop {
+.goalsHeaderTop {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.goalsHeaderStats {
+  display: flex;
+  align-items: center;
   gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-.goalCompactTop h3 {
-  font-size: 26px;
+.goalsHeaderStats strong {
+  color: var(--text);
+  font-size: 15px;
 }
 
-.goalCompactActions {
+.goalStatDivider {
+  width: 1px;
+  height: 14px;
+  background: rgba(26, 26, 46, 0.12);
+}
+
+.goalAccordionList {
+  display: grid;
+  gap: 8px;
+}
+
+.goalAccordion {
+  transition: box-shadow 0.2s ease;
+}
+
+.goalAccordionOpen {
+  box-shadow: 0 2px 12px rgba(26, 26, 46, 0.07);
+}
+
+.goalAccordionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.goalAccordionLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.goalChevron {
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.goalChevronOpen {
+  transform: rotate(90deg);
+}
+
+.goalChevronSmall {
+  font-size: 8px;
+}
+
+.goalAccordionTitle {
+  font-size: 18px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goalTitleInput {
+  font-size: 18px;
+  font-weight: 650;
+  max-width: 260px;
+}
+
+.goalAccordionRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.goalTaskCount {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.goalProgressBarSmall {
+  width: 80px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(26, 26, 46, 0.08);
+  overflow: hidden;
+}
+
+.goalProgressBarSmall i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(111, 123, 104, 0.7), var(--accent));
+  transition: width 0.3s ease;
+}
+
+.goalProgressPct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* Next action teaser (collapsed state) */
+.goalNextTeaser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 0 26px;
+}
+
+.goalNextLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.goalNextTeaser .textLink {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded body */
+.goalAccordionBody {
+  padding-top: 12px;
+  display: grid;
+  gap: 14px;
+}
+
+.goalActionBar {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  padding-left: 26px;
 }
 
-.goalMilestoneLine {
-  font-size: 14px;
-  color: #413a37;
+/* Decomposition tree */
+.goalDecompTree {
+  padding-left: 14px;
 }
 
-.goalCountsRow {
+.goalEmptyTree {
+  padding-left: 12px;
+}
+
+.goalTreeNode {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0;
+  position: relative;
+}
+
+.goalTreeNode:not(.goalTreeNodeLast)::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 18px;
+  bottom: 0;
+  width: 1px;
+  background: rgba(26, 26, 46, 0.1);
+}
+
+.goalTreeConnector {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 13px;
+  justify-content: center;
+  padding-top: 6px;
 }
 
+.goalTreeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(26, 26, 46, 0.15);
+  background: #fff;
+}
+
+.goalTreeDot--active {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(49, 57, 251, 0.12);
+}
+
+.goalTreeDot--checkCircle {
+  border-color: rgba(111, 123, 104, 0.5);
+  background: rgba(111, 123, 104, 0.3);
+}
+
+.goalTreeDot--overdue {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.15);
+}
+
+.goalTreeContent {
+  padding: 4px 0 14px 6px;
+}
+
+.goalTreeTaskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.goalTreeTaskTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.goalTreeBadge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.goalTreeBadge--pending {
+  background: rgba(26, 26, 46, 0.06);
+  color: var(--muted);
+}
+
+.goalTreeBadge--today {
+  background: rgba(49, 57, 251, 0.1);
+  color: var(--accent);
+}
+
+.goalTreeBadge--overdue {
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+}
+
+.goalTreeBadge--done {
+  background: rgba(111, 123, 104, 0.12);
+  color: #4a6341;
+}
+
+.goalTreeActions {
+  display: flex;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.goalTreeTaskDone {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.goalTreeNodeDone .goalTreeContent {
+  padding-bottom: 8px;
+}
+
+/* Completed section */
+.goalCompletedSection {
+  padding-left: 0;
+  margin-top: 2px;
+}
+
+.goalCompletedToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.goalCompletedToggle:hover {
+  color: var(--text);
+}
+
+.goalCompletedList {
+  padding-top: 4px;
+}
+
+/* Quick-add row */
 .goalQuickAddRow {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.goalTaskPreviewList {
-  display: grid;
-  gap: 8px;
-}
-
-.goalTaskPreviewRow {
-  border-radius: 12px;
-  border: 1px solid rgba(26, 26, 46, 0.08);
-  background: rgba(255, 252, 247, 0.9);
-  padding: 8px;
-  display: grid;
-  gap: 8px;
-}
-
-.goalTaskPreviewActions {
-  display: flex;
-  gap: 6px;
+  padding-left: 26px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -1857,10 +2082,18 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .goalCompactGrid,
-  .yearMiniStats,
   .settingsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .goalAccordionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .goalAccordionRight {
+    padding-left: 26px;
   }
 }
 
@@ -2939,4 +3172,417 @@ select {
 .settingsAdvancedPanel {
   padding-top: 16px;
   animation: surfaceFadeIn 300ms ease;
+}
+
+/* ─── Onboarding Wizard ─── */
+
+.onboardingWizard {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.onboardingProgress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--border);
+  z-index: 100;
+}
+
+.onboardingProgressFill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 400ms var(--ease-premium);
+  border-radius: 0 2px 2px 0;
+}
+
+.onboardingContainer {
+  width: min(560px, 100%);
+  margin: 0 auto;
+  padding: 80px 24px 60px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.onboardingBack {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 12px;
+  align-self: flex-start;
+}
+.onboardingBack:hover {
+  color: var(--text);
+}
+
+.onboardingStep {
+  display: flex;
+  flex-direction: column;
+  animation: surfaceFadeIn 400ms ease both;
+}
+
+.onboardingTitle {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.onboardingSubtitle {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+  line-height: 1.5;
+}
+
+/* Selection cards (intent + energy) */
+.onboardingCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.onboardingEnergyCards {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.onboardingCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.onboardingCard:hover {
+  border-color: var(--border-strong);
+}
+.onboardingCard.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.onboardingCard strong {
+  font-size: 14px;
+  color: var(--text);
+}
+.onboardingCardEmoji {
+  font-size: 24px;
+}
+.onboardingCardDesc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Goals step */
+.onboardingGoalInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.onboardingGoalRow {
+  display: flex;
+  gap: 8px;
+}
+.onboardingGoalRow .textInput {
+  flex: 1;
+}
+.onboardingDateInput {
+  max-width: 160px;
+}
+
+.onboardingTemplates {
+  margin-bottom: 28px;
+}
+.onboardingTemplateLabel {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.onboardingTemplateChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.onboardingChip {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.onboardingChip:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Schedule step */
+.onboardingTimeRow {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.onboardingTimeField {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.onboardingEnergyLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+/* Calendar step */
+.onboardingCalendarCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 24px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+.onboardingCalendarConnected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #16a34a;
+  font-weight: 600;
+  font-size: 16px;
+}
+.onboardingCheckmark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* WhatsApp step */
+.onboardingWhatsAppSetup {
+  margin-bottom: 28px;
+}
+
+/* Waiting / polling */
+.onboardingWaiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.onboardingWaiting p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.onboardingPulse {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: onboardingPulseAnim 1.8s ease-in-out infinite;
+}
+
+@keyframes onboardingPulseAnim {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.onboardingTimeoutHint {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 20px;
+  text-align: center;
+}
+.onboardingTimeoutHint p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+/* First day plan */
+.onboardingFirstDay {
+  margin-bottom: 28px;
+}
+
+.onboardingDaySection {
+  margin-bottom: 20px;
+}
+.onboardingDaySection h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.onboardingTimeBlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  animation: surfaceFadeIn 300ms ease both;
+}
+.onboardingTimeBlock:nth-child(2) { animation-delay: 80ms; }
+.onboardingTimeBlock:nth-child(3) { animation-delay: 160ms; }
+.onboardingTimeBlock:nth-child(4) { animation-delay: 240ms; }
+.onboardingTimeBlock:nth-child(5) { animation-delay: 320ms; }
+
+.onboardingBlockTime {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 60px;
+  font-variant-numeric: tabular-nums;
+}
+
+.onboardingBlockBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-glow);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.onboardingGoalTag {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.onboardingCalEvent {
+  border-left: 3px solid var(--support);
+}
+
+.onboardingTaskBlock {
+  border-left: 3px solid var(--accent);
+}
+
+.onboardingEmptyPlan {
+  padding: 32px 24px;
+  text-align: center;
+}
+.onboardingEmptyPlan p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Skip link */
+.onboardingSkip {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 16px;
+  padding: 0;
+  align-self: center;
+}
+.onboardingSkip:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+/* CTA buttons in wizard */
+.onboardingStep > .primaryButton {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.onboardingStep > .ghostButton {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+/* Dark mode */
+.nightMode .onboardingWizard {
+  background: #141618;
+}
+.nightMode .onboardingCard {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.nightMode .onboardingCard.selected {
+  border-color: #6B7BFF;
+  box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.12);
+}
+.nightMode .onboardingChip {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+.nightMode .onboardingChip:hover {
+  background: rgba(107, 123, 255, 0.1);
+  border-color: #6B7BFF;
+  color: #6B7BFF;
+}
+.nightMode .onboardingTimeBlock {
+  background: #1C1E21;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.nightMode .onboardingCheckmark {
+  background: rgba(22, 163, 106, 0.15);
+}
+
+/* Responsive */
+@media (max-width: 560px) {
+  .onboardingCards {
+    grid-template-columns: 1fr;
+  }
+  .onboardingEnergyCards {
+    grid-template-columns: 1fr;
+  }
+  .onboardingGoalRow {
+    flex-direction: column;
+  }
+  .onboardingDateInput {
+    max-width: 100%;
+  }
+  .onboardingTimeRow {
+    flex-direction: column;
+  }
+  .onboardingContainer {
+    padding: 60px 16px 40px;
+  }
+  .onboardingTitle {
+    font-size: 24px;
+  }
 }

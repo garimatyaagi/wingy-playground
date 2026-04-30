@@ -14,6 +14,7 @@ import TodaySurface from "./components/TodaySurface";
 import InboxSurface from "./components/InboxSurface";
 import GoalsSurface from "./components/GoalsSurface";
 import AgentSettingsSurface from "./components/AgentSettingsSurface";
+import Onboarding from "./components/Onboarding";
 import useRealtimeSync from "./hooks/useRealtimeSync";
 import {
   buildAccountabilityFeed,
@@ -391,6 +392,7 @@ export default function App() {
   const [eveningSubmitting, setEveningSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState("");
+  const [onboardingDone, setOnboardingDone] = useState(null);
   const [toast, setToast] = useState(null);
   const [newGoalTitle, setNewGoalTitle] = useState("");
   const [activeSurface, setActiveSurface] = useState("today");
@@ -2491,7 +2493,11 @@ export default function App() {
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch(`/api/agent/settings?userId=${encodeURIComponent(user.id)}`, { headers });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.profile) return;
+      if (!response.ok || !data?.profile) {
+        // No profile yet = new user, needs onboarding
+        setOnboardingDone(false);
+        return;
+      }
       setAgentSettings((prev) => ({
         ...prev,
         ...data.profile,
@@ -2499,8 +2505,10 @@ export default function App() {
       }));
       if (data.agentWhatsAppNumber) setAgentWhatsAppFrom(data.agentWhatsAppNumber);
       if (data.profile?.tone) setAgentTone(data.profile.tone);
+      setOnboardingDone(data.profile.onboardingCompleted ?? false);
     } catch (error) {
       console.error("loadAgentSettingsFromServer failed", { error });
+      setOnboardingDone(false);
     }
   }
 
@@ -2906,6 +2914,24 @@ export default function App() {
       </SignedOut>
 
       <SignedIn>
+        {onboardingDone === null ? (
+          <main className="execMain">
+            <section className="cardShell loadingCard">
+              <p className="subtle">Loading...</p>
+            </section>
+          </main>
+        ) : onboardingDone === false ? (
+          <Onboarding
+            userId={user?.id}
+            getToken={getToken}
+            agentWhatsAppFrom={agentWhatsAppFrom}
+            onComplete={() => {
+              setOnboardingDone(true);
+              loadAgentSettingsFromServer();
+            }}
+          />
+        ) : (
+        <>
         <main className="execMain">
           <ExecutionHeader
             workspaceName={workspaceName || `${userDisplayName}'s workspace`}
@@ -3118,6 +3144,8 @@ export default function App() {
         {toast ? (
           <div className={toast.kind === "error" ? "toast toastError" : "toast"}>{toast.message}</div>
         ) : null}
+        </>
+        )}
       </SignedIn>
     </div>
   );

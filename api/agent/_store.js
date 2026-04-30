@@ -92,6 +92,10 @@ export async function upsertAgentProfile({
   nudgeIntensity,
   weekendsEnabled,
   autoplanEnabled,
+  onboardingCompleted,
+  onboardingIntent,
+  peakEnergy,
+  onboardingStep,
 }) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !userId) return { ok: false, reason: "missing_supabase_or_user" };
@@ -113,12 +117,16 @@ export async function upsertAgentProfile({
     active: true,
     updated_at: new Date().toISOString(),
   };
+  if (onboardingCompleted !== undefined) row.onboarding_completed = onboardingCompleted;
+  if (onboardingIntent !== undefined) row.onboarding_intent = onboardingIntent;
+  if (peakEnergy !== undefined) row.peak_energy = peakEnergy;
+  if (onboardingStep !== undefined) row.onboarding_step = onboardingStep;
 
   const upsert = await supabase
     .from("agent_profiles")
     .upsert(row, { onConflict: "user_id" })
     .select(
-      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, updated_at"
+      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, updated_at, onboarding_completed, onboarding_intent, peak_energy, onboarding_step"
     )
     .single();
   if (!upsert.error) return { ok: true, profile: normalizeProfileRow(upsert.data) };
@@ -148,6 +156,10 @@ function normalizeProfileRow(row = {}) {
     active: row.active ?? true,
     google_refresh_token: row.google_refresh_token || "",
     googleCalendarConnected: Boolean(row.google_calendar_connected),
+    onboardingCompleted: Boolean(row.onboarding_completed),
+    onboardingIntent: row.onboarding_intent || "",
+    peakEnergy: row.peak_energy || "",
+    onboardingStep: row.onboarding_step ?? 0,
   };
 }
 
@@ -157,7 +169,7 @@ export async function getAgentProfileByUserId(userId) {
   const query = await supabase
     .from("agent_profiles")
     .select(
-      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected"
+      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected, onboarding_completed, onboarding_intent, peak_energy, onboarding_step"
     )
     .eq("user_id", userId)
     .maybeSingle();
@@ -176,7 +188,7 @@ export async function listActiveProfiles() {
   const query = await supabase
     .from("agent_profiles")
     .select(
-      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected"
+      "user_id, whatsapp_number, timezone, morning_brief_time, midday_nudge_time, afternoon_followup_time, evening_checkin_time, workday_start, workday_end, tone, nudge_intensity, weekends_enabled, autoplan_enabled, active, google_refresh_token, google_calendar_connected, onboarding_completed, onboarding_intent, peak_energy, onboarding_step"
     )
     .eq("active", true);
   if (query.error) {

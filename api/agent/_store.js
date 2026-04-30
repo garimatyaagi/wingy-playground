@@ -1255,6 +1255,25 @@ export async function getPendingPulses() {
   return data || [];
 }
 
+export async function getPendingPulsesForUser(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("agent_scheduled_pulses")
+    .select("id, user_id, fire_at, context, pulse_type")
+    .eq("user_id", userId)
+    .eq("fired", false)
+    .lte("fire_at", now)
+    .order("fire_at", { ascending: true })
+    .limit(10);
+  if (error) {
+    if (!isMissingTable(error)) console.error("getPendingPulsesForUser failed", { error, userId });
+    return [];
+  }
+  return data || [];
+}
+
 export async function markPulseFired(pulseId) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !pulseId) return;

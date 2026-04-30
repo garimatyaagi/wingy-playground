@@ -32,12 +32,7 @@ function buildAbsoluteUrl(req) {
   return `${protocol}://${host}${path}`;
 }
 
-export function validateTwilioSignature(req, formBody) {
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const signature = req.headers["x-twilio-signature"];
-  if (!authToken || !signature) return { checked: false, valid: false };
-
-  const url = buildAbsoluteUrl(req);
+function computeTwilioSignature(authToken, url, formBody) {
   const params = Object.entries(formBody || {})
     .filter(([key]) => key)
     .sort(([a], [b]) => a.localeCompare(b));
@@ -45,15 +40,46 @@ export function validateTwilioSignature(req, formBody) {
   params.forEach(([key, value]) => {
     data += `${key}${value}`;
   });
+  return crypto.createHmac("sha1", authToken).update(data).digest("base64");
+}
 
-  const computed = crypto.createHmac("sha1", authToken).update(data).digest("base64");
-  const valid =
-    computed.length === signature.length &&
-    crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(signature));
-  if (!valid) {
-    console.error("twilio signature mismatch");
+function safeTimingEqual(a, b) {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+export function validateTwilioSignature(req, formBody) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const signature = req.headers["x-twilio-signature"];
+  if (!authToken || !signature) return { checked: false, valid: false };
+
+  // Try configured webhook URL first (most reliable on reverse proxies)
+  const configuredUrl = process.env.TWILIO_WEBHOOK_URL;
+  if (configuredUrl) {
+    const computed = computeTwilioSignature(authToken, configuredUrl, formBody);
+    if (safeTimingEqual(computed, signature)) {
+      return { checked: true, valid: true };
+    }
   }
-  return { checked: true, valid };
+
+  // Fallback: construct URL from request headers
+  const constructedUrl = buildAbsoluteUrl(req);
+  const computed = computeTwilioSignature(authToken, constructedUrl, formBody);
+  if (safeTimingEqual(computed, signature)) {
+    return { checked: true, valid: true };
+  }
+
+  // Try https variant in case x-forwarded-proto is wrong
+  if (!constructedUrl.startsWith("https://")) {
+    const httpsUrl = constructedUrl.replace(/^http:\/\//, "https://");
+    const httpsComputed = computeTwilioSignature(authToken, httpsUrl, formBody);
+    if (safeTimingEqual(httpsComputed, signature)) {
+      return { checked: true, valid: true };
+    }
+  }
+
+  console.error("twilio signature mismatch", { configuredUrl: !!configuredUrl, constructedUrl });
+  return { checked: true, valid: false };
 }
 
 export async function sendWhatsAppMessage({ to, text }) {

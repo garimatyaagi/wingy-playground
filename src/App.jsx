@@ -2478,8 +2478,12 @@ export default function App() {
   async function runSchedulerNow() {
     setSchedulerRunning(true);
     try {
+      const token = await getToken().catch(() => null);
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch("/api/agent/scheduler", {
         method: "POST",
+        headers,
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {

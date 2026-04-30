@@ -15,6 +15,7 @@ import {
 import { sendWhatsAppMessage } from "./_twilio.js";
 import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
+import { authenticateRequest } from "./_auth.js";
 
 function parseTimeToMinutes(value, fallback) {
   const source = String(value || fallback || "00:00");
@@ -93,18 +94,22 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Auth: Accept Bearer header only (Vercel cron)
+  // Auth: Accept CRON_SECRET Bearer token (Vercel cron) or Clerk JWT (manual trigger)
   const cronSecret = (process.env.CRON_SECRET || "").trim();
-  if (!cronSecret) {
-    return res.status(500).json({ error: "CRON_SECRET not configured" });
-  }
   const authHeader = String(req.headers.authorization || "").trim();
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  if (
-    !bearerToken ||
-    bearerToken.length !== cronSecret.length ||
-    !crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(cronSecret))
-  ) {
+
+  const isCronAuth = cronSecret && bearerToken &&
+    bearerToken.length === cronSecret.length &&
+    crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(cronSecret));
+
+  let isUserAuth = false;
+  if (!isCronAuth) {
+    const clerkUserId = await authenticateRequest(req);
+    isUserAuth = Boolean(clerkUserId);
+  }
+
+  if (!isCronAuth && !isUserAuth) {
     console.error("scheduler_auth_failed");
     return res.status(401).json({ error: "Unauthorized" });
   }

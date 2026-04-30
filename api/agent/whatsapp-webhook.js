@@ -24,6 +24,9 @@ import {
   updateMessageCaptureBatch,
   getOrCreateSessionId,
   updateMessageCaptureMedia,
+  createLongTermGoal,
+  createGoalMilestone,
+  listActiveLongTermGoals,
 } from "./_store.js";
 import {
   buildMessageContext,
@@ -39,6 +42,7 @@ import {
   sendWhatsAppMessage,
 } from "./_twilio.js";
 import { getUpcomingEvents } from "./_calendar.js";
+import { llmDecomposeGoal } from "./_llm.js";
 import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
 
 function formatErrorReply() {
@@ -567,6 +571,61 @@ export default async function handler(req, res) {
         } else {
           clarificationRequested = true;
           actionsTaken.push({ type: "error", message: "I could not save that goal yet. Please try a shorter goal title." });
+        }
+
+      } else if (action.intent === "create_long_term_goal") {
+        // Check active goal count (cap at 5)
+        const existingGoals = await listActiveLongTermGoals(userId);
+        if (existingGoals.length >= 5) {
+          actionsTaken.push({
+            type: "long_term_goal_limit",
+            message: `You have ${existingGoals.length} active long-term goals. Consider pausing or archiving one before adding another. Active goals: ${existingGoals.map((g) => g.title).join(", ")}`,
+          });
+        } else {
+          const goalData = await createLongTermGoal(userId, {
+            title: action.longTermGoalTitle || action.taskTitle || rawText,
+            description: action.longTermGoalDescription || "",
+            scope: action.longTermGoalScope || "yearly",
+            targetDate: action.longTermGoalTargetDate || null,
+            priority: existingGoals.filter((g) => g.priority === 1).length >= 2 ? 2 : (existingGoals.length === 0 ? 1 : 2),
+          });
+
+          if (goalData?.id) {
+            await logParsedAction({ captureId, userId, actionType: "create_long_term_goal", actionPayload: { title: goalData.title, scope: goalData.scope }, targetTaskId: goalData.id, result: "long_term_goal_created", confidence: parsedResult.confidence });
+
+            // Decompose into milestones via LLM
+            const decomposition = await llmDecomposeGoal(
+              goalData.title,
+              goalData.description,
+              goalData.target_date,
+              userId
+            );
+
+            let milestonesSaved = [];
+            if (decomposition?.milestones) {
+              for (let i = 0; i < decomposition.milestones.length; i++) {
+                const m = decomposition.milestones[i];
+                const saved = await createGoalMilestone(goalData.id, userId, {
+                  title: m.title,
+                  description: m.description || "",
+                  orderIndex: i,
+                  targetDate: m.targetWeek
+                    ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
+                    : null,
+                });
+                if (saved) milestonesSaved.push(saved);
+              }
+            }
+
+            actionsTaken.push({
+              type: "long_term_goal_created",
+              goal: goalData,
+              milestones: milestonesSaved,
+              decomposition,
+            });
+          } else {
+            actionsTaken.push({ type: "error", message: "Could not save that long-term goal. Please try again." });
+          }
         }
 
       } else if (action.intent === "note" || action.intent === "informational_update") {

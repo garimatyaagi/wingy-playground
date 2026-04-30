@@ -8,6 +8,9 @@ import {
   markPulseFired,
   getAgentProfileByUserId,
   getBotPauseStatus,
+  listActiveLongTermGoals,
+  listMilestonesForGoal,
+  countGoalTaskCompletions,
 } from "./_store.js";
 import {
   buildEveningCheckin,
@@ -17,7 +20,7 @@ import {
   recomputeDailyPlan,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
-import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage } from "./_llm.js";
+import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage, llmWeeklyGoalReview } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 import { authenticateRequest } from "./_auth.js";
 
@@ -147,6 +150,12 @@ export default async function handler(req, res) {
       const calendarEvents = profile.google_refresh_token
         ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
+      // Enrich planState with goal task context for morning brief
+      if (planState.goalTasks?.length > 0) {
+        planState.goalTaskContext = planState.goalTasks.map((gt) =>
+          `[${gt.goalTitle || "Goal"}] ${gt.milestoneTitle || gt.text || ""}`
+        );
+      }
       const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
       const body = llmBody || buildMorningBrief({
         planState,
@@ -280,6 +289,48 @@ export default async function handler(req, res) {
           });
           profileReport.actions.push({ type: "followup", sent, taskId: avoidedTask.id });
         }
+      }
+    }
+
+    // ─── Weekly Goal Review ───
+    const reviewDay = (profile.weekly_review_day || profile.weeklyReviewDay || "sun").toLowerCase();
+    const reviewTime = parseTimeToMinutes(profile.weekly_review_time || profile.weeklyReviewTime, "19:00");
+    if (
+      profile.whatsAppNumber &&
+      local.weekday === reviewDay &&
+      withinWindow(local.minuteOfDay, reviewTime, 22) &&
+      !sentTypes.has("weekly_goal_review")
+    ) {
+      try {
+        const goals = await listActiveLongTermGoals(profile.userId);
+        if (goals.length > 0) {
+          // Enrich each goal with milestones and completion rate
+          const enrichedGoals = [];
+          for (const g of goals) {
+            const milestones = await listMilestonesForGoal(g.id);
+            const stats = await countGoalTaskCompletions(profile.userId, g.id, 7);
+            enrichedGoals.push({
+              ...g,
+              milestones,
+              completionRate: stats.total > 0 ? stats.completed / stats.total : null,
+            });
+          }
+          const llmBody = await llmWeeklyGoalReview(enrichedGoals, profile).catch(() => null);
+          if (llmBody) {
+            const sent = await sendAndLog({
+              userId: profile.userId,
+              to: profile.whatsAppNumber,
+              type: "weekly_goal_review",
+              body: llmBody,
+              relatedTaskIds: [],
+              metadata: { reason: "scheduled_weekly_goal_review", goalCount: goals.length },
+            });
+            profileReport.actions.push({ type: "weekly_goal_review", sent });
+            sentTypes.add("weekly_goal_review");
+          }
+        }
+      } catch (err) {
+        console.error("weekly_goal_review failed", { userId: profile.userId, err: err.message });
       }
     }
 

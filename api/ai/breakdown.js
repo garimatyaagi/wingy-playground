@@ -35,6 +35,9 @@ export default async function handler(req, res) {
   try {
     const { title, description = "", context = "" } = req.body || {};
     if (!title) return res.status(400).json({ error: "Missing title" });
+    if (title.length > 500 || description.length > 2000 || context.length > 2000) {
+      return res.status(400).json({ error: "Input too long" });
+    }
     if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
 
     const input = [

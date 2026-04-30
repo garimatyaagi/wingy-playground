@@ -1,9 +1,12 @@
 import { recomputeDailyPlan } from "./_engine.js";
+import { requireAuth } from "./_auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const userId = String(req.body?.userId || "").trim();
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  const requestedUserId = String(req.body?.userId || "").trim();
+  if (!requestedUserId) return res.status(400).json({ error: "Missing userId" });
+  const userId = await requireAuth(req, res, requestedUserId);
+  if (!userId) return;
   const date = req.body?.date || new Date().toISOString();
   const dailyCapacityMinutes = Number(req.body?.dailyCapacityMinutes || 180);
   const state = await recomputeDailyPlan({

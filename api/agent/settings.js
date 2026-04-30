@@ -3,21 +3,26 @@ import {
   upsertAgentProfile,
 } from "./_store.js";
 import { getAuthUrl } from "./_calendar.js";
+import { requireAuth } from "./_auth.js";
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
     // Handle Google Calendar auth redirect
     if (req.query?.gcal_auth === "1") {
-      const userId = String(req.query?.userId || "").trim();
-      const authUrl = getAuthUrl(userId);
+      const requestedUserId = String(req.query?.userId || "").trim();
+      const authedUserId = await requireAuth(req, res, requestedUserId);
+      if (!authedUserId) return;
+      const authUrl = getAuthUrl(authedUserId);
       if (!authUrl) {
-        return res.status(500).json({ error: "Google Calendar not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI." });
+        return res.status(500).json({ error: "Google Calendar not configured." });
       }
       return res.redirect(authUrl);
     }
 
-    const userId = String(req.query?.userId || "").trim();
-    if (!userId) return res.status(400).json({ error: "Missing userId" });
+    const requestedUserId = String(req.query?.userId || "").trim();
+    if (!requestedUserId) return res.status(400).json({ error: "Missing userId" });
+    const userId = await requireAuth(req, res, requestedUserId);
+    if (!userId) return;
     const profile = await getAgentProfileByUserId(userId);
     // Expose the agent's WhatsApp number so the frontend can build a wa.me connect link
     const agentWhatsAppNumber = (process.env.TWILIO_WHATSAPP_FROM || "").replace(/^whatsapp:/, "");
@@ -29,8 +34,10 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
-  const userId = String(body.userId || "").trim();
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  const requestedUserId = String(body.userId || "").trim();
+  if (!requestedUserId) return res.status(400).json({ error: "Missing userId" });
+  const userId = await requireAuth(req, res, requestedUserId);
+  if (!userId) return;
 
   const result = await upsertAgentProfile({
     userId,

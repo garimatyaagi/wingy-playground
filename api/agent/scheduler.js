@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   listActiveProfiles,
   listAgentMessagesForDate,
@@ -92,22 +93,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Auth: Accept Bearer header (Vercel cron) or ?token= query param (external cron services)
+  // Auth: Accept Bearer header only (Vercel cron)
   const cronSecret = (process.env.CRON_SECRET || "").trim();
-  if (cronSecret) {
-    const authHeader = String(req.headers.authorization || "").trim();
-    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    const queryToken = String(req.query?.token || "").trim();
-    const authenticated = bearerToken === cronSecret || queryToken === cronSecret;
-    if (!authenticated) {
-      console.error("scheduler_auth_failed", JSON.stringify({
-        hasAuth: !!authHeader,
-        hasQueryToken: !!queryToken,
-        bearerLen: bearerToken.length,
-        secretLen: cronSecret.length,
-      }));
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  if (!cronSecret) {
+    return res.status(500).json({ error: "CRON_SECRET not configured" });
+  }
+  const authHeader = String(req.headers.authorization || "").trim();
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (
+    !bearerToken ||
+    bearerToken.length !== cronSecret.length ||
+    !crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(cronSecret))
+  ) {
+    console.error("scheduler_auth_failed");
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   const now = new Date();

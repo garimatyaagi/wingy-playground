@@ -1,12 +1,15 @@
 import { generateNudge } from "./_engine.js";
 import { logAgentMessage } from "./_store.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
+import { requireAuth } from "./_auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const userId = String(req.body?.userId || "").trim();
+  const requestedUserId = String(req.body?.userId || "").trim();
   const to = String(req.body?.to || "").trim();
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  if (!requestedUserId) return res.status(400).json({ error: "Missing userId" });
+  const userId = await requireAuth(req, res, requestedUserId);
+  if (!userId) return;
 
   const tone = req.body?.tone || "firm";
   const nudge = await generateNudge({

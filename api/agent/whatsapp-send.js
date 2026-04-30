@@ -1,11 +1,14 @@
 import { logAgentMessage } from "./_store.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
+import { requireAuth } from "./_auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { to, text, userId, type = "nudge", relatedTaskIds = [], metadata = {} } = req.body || {};
+    const { to, text, userId: requestedUserId, type = "nudge", relatedTaskIds = [], metadata = {} } = req.body || {};
+    const userId = requestedUserId ? await requireAuth(req, res, requestedUserId) : null;
+    if (requestedUserId && !userId) return;
     const bodyText = String(text || "").trim();
     if (!bodyText) {
       return res.status(400).json({ error: "Missing message text" });

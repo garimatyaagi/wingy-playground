@@ -563,6 +563,7 @@ export default function App() {
           const second = await supabase
             .from("tasks")
             .select(basicGoalSelect)
+            .eq("user_id", user.id)
             .order("created_at", { ascending: false })
             .limit(MAX_GOALS);
           goalsRows = second.data;
@@ -955,6 +956,8 @@ export default function App() {
   useEffect(() => {
     function handleGcalMessage(event) {
       if (event.data?.type !== "gcal_result") return;
+      // Only accept messages from our own origin
+      if (event.origin !== window.location.origin) return;
       if (event.data.status === "connected") {
         showToast("Google Calendar connected!");
         updateAgentSetting("googleCalendarConnected", true);
@@ -1166,7 +1169,7 @@ export default function App() {
       if (error && String(error.code || "") === "42703") {
         const second = await supabase
           .from("tasks")
-          .insert({ title })
+          .insert({ title, user_id: user?.id || null })
           .select("id, title, created_at")
           .single();
         data = second.data;
@@ -1933,11 +1936,14 @@ export default function App() {
     if (normalized) endpoints.push(`${normalized}${path}`);
     endpoints.push(path);
 
+    const token = await getToken().catch(() => null);
     for (const endpoint of endpoints) {
       try {
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
         const response = await fetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(payload || {}),
         });
         const data = await response.json().catch(() => null);
@@ -2451,7 +2457,10 @@ export default function App() {
   async function loadAgentSettingsFromServer() {
     if (!user?.id) return;
     try {
-      const response = await fetch(`/api/agent/settings?userId=${encodeURIComponent(user.id)}`);
+      const token = await getToken().catch(() => null);
+      const headers = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const response = await fetch(`/api/agent/settings?userId=${encodeURIComponent(user.id)}`, { headers });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.profile) return;
       setAgentSettings((prev) => ({
@@ -2493,7 +2502,10 @@ export default function App() {
     if (!user?.id) return;
     setDebugLoading(true);
     try {
-      const response = await fetch(`/api/agent/debug?userId=${encodeURIComponent(user.id)}`);
+      const token = await getToken().catch(() => null);
+      const headers = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const response = await fetch(`/api/agent/debug?userId=${encodeURIComponent(user.id)}`, { headers });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data) {
         showToast("Could not load agent debug logs.", "error");

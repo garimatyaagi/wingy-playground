@@ -58,6 +58,10 @@ export default async function handler(req, res) {
     nudgeIntensity: body.nudgeIntensity || "medium",
     weekendsEnabled: body.weekendsEnabled ?? true,
     autoplanEnabled: body.autoplanEnabled ?? true,
+    onboardingCompleted: body.onboardingCompleted,
+    onboardingIntent: body.onboardingIntent,
+    peakEnergy: body.peakEnergy,
+    onboardingStep: body.onboardingStep,
   });
 
   if (!result.ok) {

@@ -649,6 +649,28 @@ Rules:
   }
 }
 
+// ─── LLM Onboarding Answer Extraction ───
+
+export async function llmExtractOnboardingAnswer(rawText, questionTopic) {
+  if (!process.env.OPENAI_API_KEY) return rawText.trim();
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `You extract concise, useful facts from a user's answer about "${questionTopic}". Return a short summary (1-2 sentences max) that captures the key insight. Keep it factual and in third person (e.g., "User is a..." not "I am a..."). If the answer is unclear or empty, return "Not specified".`,
+        },
+        { role: "user", content: rawText },
+      ],
+    });
+    return (response.output_text || rawText).trim();
+  } catch (err) {
+    console.error("llmExtractOnboardingAnswer error:", err.message);
+    return rawText.trim();
+  }
+}
+
 // ─── LLM Weekly Goal Review ───
 
 export async function llmWeeklyGoalReview(goals, profile = {}) {

@@ -5,6 +5,8 @@ import {
   saveDailyPlan,
   fetchRecentContext,
   updateTaskStep,
+  listTaskOccurrences,
+  getMultiDayProgress,
 } from "./_store.js";
 import { llmParseMessage } from "./_llm.js";
 
@@ -193,6 +195,10 @@ function inferEstimatedMinutes(text, effortType) {
     if (!Number.isFinite(amount) || amount <= 0) return 30;
     return explicit[2].toLowerCase().startsWith("h") ? Math.min(240, amount * 60) : Math.min(240, amount);
   }
+  // Books: return daily session time (not total)
+  if (/\bread\b.*\b(book|chapter|pages?)\b/.test(lower) || /\bread\s+[A-Z]/.test(text)) return 45;
+  // Multi-day project work: return daily session
+  if (/\b(build|write|create|design)\s+(a\s+)?(website|app|landing|blog|thesis|course)\b/.test(lower)) return 90;
   if (effortType === "admin") return 20;
   if (effortType === "call") return 20;
   if (effortType === "errand") return 45;
@@ -599,6 +605,10 @@ function mapLlmAction(a, rawText, confidence) {
       aiConfidence: confidence,
       goalName: a.goalName || "General",
       status: "open",
+      totalEstimatedMinutes: a.totalEstimatedMinutes || a.estimatedMinutes || 30,
+      dailyAllocatedMinutes: a.dailyAllocatedMinutes || a.estimatedMinutes || 30,
+      estimatedDays: a.estimatedDays || 1,
+      estimationReasoning: a.estimationReasoning || "",
     }];
   }
   if (a.intent === "complete_task") {
@@ -908,12 +918,32 @@ export async function recomputeDailyPlan({
   const recurringDue = tasks.filter((task) => recurrenceOccursOnDate(task, targetDate));
   const oneTimeOpen = tasks.filter((task) => !task.isRecurring);
 
+  // Fetch multi-day progress for tasks that span multiple days
+  const multiDayTasks = tasks.filter((t) => Number(t.estimatedDays || 0) > 1);
+  const progressMap = new Map();
+  for (const t of multiDayTasks) {
+    try {
+      const occurrences = await listTaskOccurrences(t.id);
+      progressMap.set(t.id, getMultiDayProgress(t, occurrences));
+    } catch { /* ignore */ }
+  }
+
   const scored = tasks
     .map((task) => {
       const isOverdue = Boolean(task.dueDate && asDate(task.dueDate)?.getTime() < targetDate.getTime());
       const isDueToday = Boolean(task.dueDate && isoDate(task.dueDate) === dateKey);
       const recurringDueToday = task.isRecurring && recurrenceOccursOnDate(task, targetDate);
       const avoidance = computeAvoidanceScore(task);
+      const multiDayProgress = progressMap.get(task.id) || null;
+
+      // Use daily allocation for capacity fitting on multi-day tasks
+      const effectiveMinutes = multiDayProgress?.isMultiDay
+        ? multiDayProgress.todayAllocatedMinutes
+        : Number(task.estimatedMinutes || 30);
+
+      // Boost priority for multi-day tasks with incomplete sessions
+      const multiDayBoost = multiDayProgress?.isMultiDay && multiDayProgress.completedSessions < multiDayProgress.totalSessions ? 8 : 0;
+
       const score =
         taskDuePressure(task, targetDate) +
         Number(task.importance || 3) * 10 +
@@ -925,7 +955,8 @@ export async function recomputeDailyPlan({
         Math.min(18, Number(task.rescheduleCount || 0) * 3) +
         Math.min(12, avoidance * 2) +
         (task.isBlocked ? -28 : 0) +
-        estimateEffortFit(task, dailyCapacityMinutes);
+        estimateEffortFit({ ...task, estimatedMinutes: effectiveMinutes }, dailyCapacityMinutes) +
+        multiDayBoost;
       return {
         ...task,
         priorityScore: Math.round(score),
@@ -933,6 +964,8 @@ export async function recomputeDailyPlan({
         recurringDueToday,
         isDueToday,
         isOverdue,
+        multiDayProgress,
+        effectiveMinutes,
       };
     })
     .sort((a, b) => Number(b.priorityScore || 0) - Number(a.priorityScore || 0));
@@ -962,7 +995,7 @@ export async function recomputeDailyPlan({
   for (const task of scored) {
     if (topPriorities.length >= 3 + recurringMustDo.length) break;
     if (topPriorities.some((t) => t.id === task.id)) continue;
-    const estimate = Math.max(10, Number(task.estimatedMinutes || 30));
+    const estimate = Math.max(10, task.effectiveMinutes || Number(task.estimatedMinutes || 30));
     // 3. Overload protection: if must-do > 1.5x capacity, defer low-importance non-overdue
     if (topPriorities.length > 0 && usedMinutes + estimate > dailyCapacityMinutes * 1.5) {
       if (!task.isOverdue && Number(task.importance || 0) < 4) continue;
@@ -1222,9 +1255,10 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
     lines.push("- Nothing scheduled. Capture tasks by sending them here.");
   }
   top.slice(0, 3).forEach((task, index) => {
-    const est = task.estimatedMinutes || 30;
+    const progress = task.multiDayProgress;
+    const est = progress?.isMultiDay ? progress.todayAllocatedMinutes : (task.estimatedMinutes || 30);
     const postponed = Number(task.rescheduleCount || 0);
-    let line = `${index + 1}. ${task.title} (${est}m)`;
+    let line = `${index + 1}. ${task.title} (${est}m${progress?.isMultiDay ? ` today, ${progress.progressLabel}` : ""})`;
     if (postponed >= 2) line += ` \u2014 you've postponed this ${postponed} times`;
     if (task.avoidanceScore >= 3) line += " \u2014 stop avoiding this";
     lines.push(line);
@@ -1237,7 +1271,10 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
     lines.push("");
   }
 
-  const totalMinutes = top.reduce((sum, t) => sum + (t.estimatedMinutes || 30), 0);
+  const totalMinutes = top.reduce((sum, t) => {
+    const progress = t.multiDayProgress;
+    return sum + (progress?.isMultiDay ? progress.todayAllocatedMinutes : (t.estimatedMinutes || 30));
+  }, 0);
   lines.push(`Total focus needed: ${totalMinutes} minutes.`);
 
   if (tone === "ruthless") {
@@ -1261,7 +1298,9 @@ export function buildEveningCheckin({ planState }) {
   lines.push("Reply done / partial / skipped for each:");
   top.slice(0, 3).forEach((task, index) => {
     const postponed = Number(task.rescheduleCount || 0);
+    const progress = task.multiDayProgress;
     let line = `${index + 1}. ${task.title}`;
+    if (progress?.isMultiDay) line += ` (${progress.progressLabel})`;
     if (postponed >= 2) line += ` (postponed ${postponed}x already)`;
     lines.push(line);
   });
@@ -1319,19 +1358,26 @@ export async function generateNudge({
     };
   }
 
-  const sprintMinutes = Math.min(30, Math.max(15, Number(target.estimatedMinutes || 30)));
+  const progress = target.multiDayProgress;
+  const effectiveMinutes = progress?.isMultiDay ? progress.todayAllocatedMinutes : Number(target.estimatedMinutes || 30);
+  const sprintMinutes = Math.min(30, Math.max(15, effectiveMinutes));
   const openCount = top.length;
-  const totalLeft = top.reduce((s, t) => s + (t.estimatedMinutes || 30), 0);
+  const totalLeft = top.reduce((s, t) => {
+    const p = t.multiDayProgress;
+    return s + (p?.isMultiDay ? p.todayAllocatedMinutes : (t.estimatedMinutes || 30));
+  }, 0);
+
+  const progressNote = progress?.isMultiDay ? ` (${progress.progressLabel})` : "";
 
   if (tone === "ruthless") {
     return {
-      body: `"${target.title}" is still pending. ${openCount} priorities, ${totalLeft}m total. Start ${sprintMinutes} minutes now. No negotiation.`,
+      body: `"${target.title}"${progressNote} is still pending. ${openCount} priorities, ${totalLeft}m total. Start ${sprintMinutes} minutes now. No negotiation.`,
       relatedTaskIds: [target.id],
       reason: "next_best_incomplete",
     };
   }
   return {
-    body: `Your next priority is "${target.title}" (${sprintMinutes}m). ${openCount - 1} more after this. Start now and reply 'done' when finished.`,
+    body: `Your next priority is "${target.title}"${progressNote} (${sprintMinutes}m). ${openCount - 1} more after this. Start now and reply 'done' when finished.`,
     relatedTaskIds: [target.id],
     reason: "next_best_incomplete",
   };

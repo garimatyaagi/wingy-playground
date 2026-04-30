@@ -292,7 +292,7 @@ export async function listOpenTasks(userId) {
     if (goalIds.length === 0) return [];
 
     const richSelect =
-      "id, task_id, text, done, minutes, estimate_minutes, next_action, completed_at, created_at, updated_at, due_date, urgency, importance, is_blocked, blocked_by_task_id, ai_confidence, source_type, is_note, suggested_time_slot, type, status, priority_score, effort_type, description, recurrence_rule, is_recurring, actual_minutes, scheduled_date, scheduled_start, scheduled_end, avoidance_score, reschedule_count";
+      "id, task_id, text, done, minutes, estimate_minutes, next_action, completed_at, created_at, updated_at, due_date, urgency, importance, is_blocked, blocked_by_task_id, ai_confidence, source_type, is_note, suggested_time_slot, type, status, priority_score, effort_type, description, recurrence_rule, is_recurring, actual_minutes, scheduled_date, scheduled_start, scheduled_end, avoidance_score, reschedule_count, total_estimated_minutes, daily_allocated_minutes, estimated_days, estimation_reasoning";
     const first = await supabase
       .from("task_steps")
       .select(richSelect)
@@ -347,6 +347,10 @@ export async function listOpenTasks(userId) {
         createdAt: safeIsoDate(row.created_at) || new Date().toISOString(),
         updatedAt: safeIsoDate(row.updated_at) || new Date().toISOString(),
         completedAt: safeIsoDate(row.completed_at),
+        totalEstimatedMinutes: Number.isFinite(row.total_estimated_minutes) ? row.total_estimated_minutes : null,
+        dailyAllocatedMinutes: Number.isFinite(row.daily_allocated_minutes) ? row.daily_allocated_minutes : null,
+        estimatedDays: Number.isFinite(row.estimated_days) ? row.estimated_days : null,
+        estimationReasoning: row.estimation_reasoning || null,
       };
     });
   } catch (error) {
@@ -414,6 +418,10 @@ export async function createTaskStep(userId, taskPayload) {
     completion_confidence: Number.isFinite(taskPayload.completionConfidence)
       ? taskPayload.completionConfidence
       : null,
+    total_estimated_minutes: Number.isFinite(taskPayload.totalEstimatedMinutes) ? taskPayload.totalEstimatedMinutes : null,
+    daily_allocated_minutes: Number.isFinite(taskPayload.dailyAllocatedMinutes) ? taskPayload.dailyAllocatedMinutes : null,
+    estimated_days: Number.isFinite(taskPayload.estimatedDays) ? taskPayload.estimatedDays : null,
+    estimation_reasoning: taskPayload.estimationReasoning || null,
   };
 
   const first = await supabase
@@ -882,6 +890,54 @@ export async function saveTaskOccurrence({
     console.error("saveTaskOccurrence failed", { error: upsert.error, payload });
   }
   return null;
+}
+
+export async function listTaskOccurrences(parentTaskId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !parentTaskId) return [];
+  const { data, error } = await supabase
+    .from("task_occurrences")
+    .select("id, parent_task_id, date, status, actual_minutes, skipped, completed_at")
+    .eq("parent_task_id", parentTaskId)
+    .order("date", { ascending: false });
+  if (error) {
+    if (!isMissingTable(error)) console.error("listTaskOccurrences failed", { error, parentTaskId });
+    return [];
+  }
+  return data || [];
+}
+
+export function getMultiDayProgress(task, occurrences = []) {
+  const isMultiDay = Number(task.estimatedDays || 0) > 1;
+  if (!isMultiDay) {
+    return {
+      isMultiDay: false,
+      completedSessions: 0,
+      totalSessions: 1,
+      remainingMinutes: task.estimatedMinutes || 30,
+      todayAllocatedMinutes: task.estimatedMinutes || 30,
+      progressLabel: "",
+    };
+  }
+  const completedOccurrences = occurrences.filter(
+    (o) => o.status === "done" || o.status === "completed" || (o.completed_at && !o.skipped)
+  );
+  const completedSessions = completedOccurrences.length;
+  const totalSessions = task.estimatedDays || 1;
+  const totalMinutes = task.totalEstimatedMinutes || (task.estimatedMinutes || 30) * totalSessions;
+  const minutesDone = completedOccurrences.reduce((sum, o) => sum + (o.actual_minutes || task.dailyAllocatedMinutes || 30), 0);
+  const remainingMinutes = Math.max(0, totalMinutes - minutesDone);
+  const todayAllocatedMinutes = task.dailyAllocatedMinutes || task.estimatedMinutes || 30;
+  const progressLabel = `session ${completedSessions + 1}/${totalSessions}`;
+
+  return {
+    isMultiDay: true,
+    completedSessions,
+    totalSessions,
+    remainingMinutes,
+    todayAllocatedMinutes,
+    progressLabel,
+  };
 }
 
 export async function saveAgentNote({ userId, text, rawText }) {

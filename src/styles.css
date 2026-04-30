@@ -5,21 +5,21 @@
 }
 
 :root {
-  --bg: #FAFBF8;
-  --bg-alt: #F4F5F0;
+  --bg: #FFFCEC;
+  --bg-alt: #FBF8E8;
   --surface: #FFFFFF;
-  --surface-soft: #F4F5F0;
+  --surface-soft: #FBF8E8;
   --text: #1A1A2E;
   --text-secondary: #4A4A5A;
   --muted: #8A8A9A;
-  --accent: #4A9A8A;
-  --accent-strong: #3D8377;
-  --accent-glow: rgba(74, 154, 138, 0.08);
-  --support: #578383;
+  --accent: #3139FB;
+  --accent-strong: #2702C2;
+  --accent-glow: rgba(49, 57, 251, 0.08);
+  --support: #5B5FD6;
   --border: rgba(26, 26, 46, 0.06);
   --border-strong: rgba(26, 26, 46, 0.12);
   --shadow-soft: 0 18px 40px rgba(26, 26, 46, 0.06);
-  --font-display: "Paper Mono", ui-monospace, monospace;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-xl: 20px;
   --radius-lg: 14px;
@@ -32,7 +32,7 @@
   --space-lg: 64px;
   --space-xl: 120px;
   --space-2xl: 180px;
-  --transition-fast: 200ms ease;
+  --transition-fast: 150ms ease;
   --ease-premium: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
@@ -46,8 +46,8 @@ body,
 body {
   font-family: var(--font-body);
   color: var(--text);
-  background: radial-gradient(1200px 600px at 95% -10%, rgba(74, 154, 138, 0.05), transparent 60%),
-    radial-gradient(900px 500px at -15% 100%, rgba(87, 131, 131, 0.08), transparent 62%), var(--bg);
+  background: radial-gradient(1200px 600px at 95% -10%, rgba(49, 57, 251, 0.04), transparent 60%),
+    radial-gradient(900px 500px at -15% 100%, rgba(91, 95, 214, 0.06), transparent 62%), var(--bg);
   line-height: 1.5;
 }
 
@@ -58,7 +58,8 @@ h4,
 h5 {
   margin: 0;
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
 
 p {
@@ -88,7 +89,7 @@ a {
   color: #fff;
   padding: 12px 18px;
   font-weight: 650;
-  box-shadow: 0 10px 22px rgba(74, 154, 138, 0.25);
+  box-shadow: 0 10px 22px rgba(49, 57, 251, 0.2);
 }
 
 .primaryButton:hover,
@@ -108,7 +109,7 @@ a {
 
 .ghostButton:hover,
 .buttonLight:hover {
-  border-color: rgba(74, 154, 138, 0.42);
+  border-color: rgba(49, 57, 251, 0.35);
   color: var(--accent);
 }
 
@@ -131,9 +132,9 @@ a {
 }
 
 .ghostButton.active {
-  border-color: rgba(74, 154, 138, 0.35);
+  border-color: rgba(49, 57, 251, 0.3);
   color: var(--accent);
-  background: rgba(74, 154, 138, 0.08);
+  background: rgba(49, 57, 251, 0.06);
 }
 
 .textInput,
@@ -155,8 +156,8 @@ select {
 .textInput:focus,
 .select:focus,
 .intakeTextarea:focus {
-  border-color: rgba(74, 154, 138, 0.52);
-  box-shadow: 0 0 0 4px rgba(74, 154, 138, 0.12);
+  border-color: rgba(49, 57, 251, 0.52);
+  box-shadow: 0 0 0 4px rgba(49, 57, 251, 0.12);
 }
 
 .inputLabel {
@@ -307,7 +308,7 @@ select {
   font-size: 11px;
   border-radius: 999px;
   padding: 4px 8px;
-  background: rgba(74, 154, 138, 0.12);
+  background: rgba(49, 57, 251, 0.12);
   color: var(--accent);
   font-weight: 650;
 }
@@ -526,7 +527,7 @@ select {
 }
 
 .previewKindneedsreview {
-  background: rgba(74, 154, 138, 0.14);
+  background: rgba(49, 57, 251, 0.14);
   color: #7f2b25;
 }
 
@@ -703,7 +704,7 @@ select {
 
 .crossButton:hover,
 .tickButton:hover {
-  border-color: rgba(74, 154, 138, 0.42);
+  border-color: rgba(49, 57, 251, 0.42);
   color: var(--accent);
 }
 
@@ -915,7 +916,7 @@ select {
 
 .moveGoalItem.active,
 .moveGoalItem:hover {
-  border-color: rgba(74, 154, 138, 0.35);
+  border-color: rgba(49, 57, 251, 0.35);
   color: var(--accent);
 }
 
@@ -964,7 +965,7 @@ select {
 .commandCenterPanel {
   display: grid;
   gap: 12px;
-  border: 1px solid rgba(74, 154, 138, 0.2);
+  border: 1px solid rgba(49, 57, 251, 0.2);
   background: linear-gradient(180deg, var(--surface), var(--surface-soft));
 }
 
@@ -1034,7 +1035,7 @@ select {
 
 .riskPill.high,
 .riskPill.overdue {
-  background: rgba(74, 154, 138, 0.12);
+  background: rgba(49, 57, 251, 0.12);
   color: var(--accent);
 }
 
@@ -1095,8 +1096,8 @@ select {
 }
 
 .signalCard.high {
-  border-color: rgba(74, 154, 138, 0.3);
-  background: rgba(74, 154, 138, 0.06);
+  border-color: rgba(49, 57, 251, 0.3);
+  background: rgba(49, 57, 251, 0.06);
 }
 
 .signalCard.medium {
@@ -1139,7 +1140,7 @@ select {
 .feedTag.overdue,
 .feedTag.pending,
 .feedTag.rescheduled {
-  background: rgba(74, 154, 138, 0.12);
+  background: rgba(49, 57, 251, 0.12);
   color: #7d2a24;
 }
 
@@ -1155,8 +1156,8 @@ select {
 
 .replanSummary {
   border-radius: 14px;
-  border: 1px solid rgba(74, 154, 138, 0.2);
-  background: rgba(74, 154, 138, 0.06);
+  border: 1px solid rgba(49, 57, 251, 0.2);
+  background: rgba(49, 57, 251, 0.06);
   padding: 9px 10px;
   color: #5f2722;
   font-weight: 570;
@@ -1287,7 +1288,7 @@ select {
 
 .appSurfaceTabs .ghostButton.mini:hover {
   color: var(--text);
-  background: rgba(74, 154, 138, 0.06);
+  background: rgba(49, 57, 251, 0.06);
 }
 
 .appSurfaceTabs .ghostButton.mini.active {
@@ -1350,9 +1351,9 @@ select {
 }
 
 .agentStatusPill.needs-review {
-  background: rgba(74, 154, 138, 0.12);
+  background: rgba(49, 57, 251, 0.12);
   color: #7a2923;
-  border-color: rgba(74, 154, 138, 0.32);
+  border-color: rgba(49, 57, 251, 0.32);
 }
 
 .topPriorityCard,
@@ -1469,8 +1470,8 @@ select {
 }
 
 .inboxCaptureCard.review {
-  border-color: rgba(74, 154, 138, 0.32);
-  background: rgba(74, 154, 138, 0.05);
+  border-color: rgba(49, 57, 251, 0.32);
+  background: rgba(49, 57, 251, 0.05);
 }
 
 .captureTopRow {
@@ -1696,13 +1697,14 @@ select {
   --surface-soft: #22252A;
   --text: #EAEEF2;
   --muted: #8B929A;
-  --accent: #6BB5A5;
-  --accent-strong: #82CCBC;
-  --support: #6E9898;
+  --accent: #6B7BFF;
+  --accent-strong: #8B9AFF;
+  --accent-glow: rgba(107, 123, 255, 0.1);
+  --support: #7B7FE0;
   --border: rgba(234, 238, 242, 0.12);
   --shadow-soft: 0 24px 44px rgba(0, 0, 0, 0.4);
-  background: radial-gradient(1200px 620px at 94% -10%, rgba(107, 181, 165, 0.08), transparent 62%),
-    radial-gradient(900px 500px at -12% 100%, rgba(110, 152, 152, 0.1), transparent 62%), #141618;
+  background: radial-gradient(1200px 620px at 94% -10%, rgba(107, 123, 255, 0.08), transparent 62%),
+    radial-gradient(900px 500px at -12% 100%, rgba(123, 127, 224, 0.08), transparent 62%), #141618;
 }
 
 .nightMode .cardShell,
@@ -1936,7 +1938,7 @@ select {
   height: 600px;
   background: radial-gradient(
     ellipse at center,
-    rgba(74, 154, 138, 0.06) 0%,
+    rgba(49, 57, 251, 0.06) 0%,
     transparent 70%
   );
   pointer-events: none;
@@ -1981,7 +1983,7 @@ select {
 }
 
 .heroHeadline .accentGradient {
-  background: linear-gradient(135deg, var(--accent) 0%, #3D8377 60%, #578383 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, #2702C2 60%, #5B5FD6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -2159,7 +2161,7 @@ select {
   height: 48px;
   border-radius: var(--radius-md);
   background: var(--accent-glow);
-  border: 1px solid rgba(74, 154, 138, 0.12);
+  border: 1px solid rgba(49, 57, 251, 0.12);
   display: grid;
   place-items: center;
   font-size: 22px;
@@ -2257,7 +2259,7 @@ select {
   inset: 0;
   background: linear-gradient(
     135deg,
-    rgba(74, 154, 138, 0.04) 0%,
+    rgba(49, 57, 251, 0.04) 0%,
     transparent 60%
   );
 }
@@ -2409,7 +2411,7 @@ select {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #578383);
+  background: linear-gradient(135deg, var(--accent), #5B5FD6);
   display: grid;
   place-items: center;
   color: #fff;
@@ -2542,7 +2544,7 @@ select {
   height: 400px;
   background: radial-gradient(
     ellipse at center,
-    rgba(74, 154, 138, 0.06) 0%,
+    rgba(49, 57, 251, 0.06) 0%,
     transparent 70%
   );
   pointer-events: none;

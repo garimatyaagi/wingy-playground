@@ -9,6 +9,7 @@ import {
   getMultiDayProgress,
 } from "./_store.js";
 import { llmParseMessage } from "./_llm.js";
+import { buildOptimizedSchedule, formatScheduleForBrief } from "./_optimizer.js";
 
 const ACTION_VERBS = [
   "finish",
@@ -909,6 +910,8 @@ export async function recomputeDailyPlan({
   userId,
   date = new Date(),
   dailyCapacityMinutes = 180,
+  calendarEvents = [],
+  profile = {},
 }) {
   const targetDate = asDate(date) || new Date();
   const dateKey = toDateKey(targetDate);
@@ -1053,6 +1056,20 @@ export async function recomputeDailyPlan({
     });
   }
 
+  // ─── Calendar-Aware Time-Block Optimization ───
+  let optimizedSchedule = null;
+  try {
+    optimizedSchedule = buildOptimizedSchedule({
+      scoredTasks: scored,
+      topPriorities,
+      calendarEvents,
+      profile,
+      dateKey,
+    });
+  } catch (err) {
+    console.error("buildOptimizedSchedule failed, proceeding without schedule:", err.message);
+  }
+
   return {
     plan:
       plan || {
@@ -1076,6 +1093,7 @@ export async function recomputeDailyPlan({
     deferred,
     nudgeCandidates,
     dailyCapacityMinutes,
+    optimizedSchedule,
   };
 }
 
@@ -1230,6 +1248,7 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
   const overdue = planState.overdue || [];
   const deferred = planState.deferred || [];
   const next = planState.nextBest;
+  const schedule = planState.optimizedSchedule;
 
   const lines = [];
   if (tone === "ruthless") {
@@ -1250,19 +1269,26 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
     lines.push("");
   }
 
-  lines.push("Today's top priorities:");
-  if (top.length === 0) {
-    lines.push("- Nothing scheduled. Capture tasks by sending them here.");
+  // If we have an optimized time-blocked schedule, show it instead of the plain list
+  const scheduleBlock = schedule ? formatScheduleForBrief(schedule) : null;
+
+  if (scheduleBlock) {
+    lines.push(scheduleBlock);
+  } else {
+    lines.push("Today's top priorities:");
+    if (top.length === 0) {
+      lines.push("- Nothing scheduled. Capture tasks by sending them here.");
+    }
+    top.slice(0, 3).forEach((task, index) => {
+      const progress = task.multiDayProgress;
+      const est = progress?.isMultiDay ? progress.todayAllocatedMinutes : (task.estimatedMinutes || 30);
+      const postponed = Number(task.rescheduleCount || 0);
+      let line = `${index + 1}. ${task.title} (${est}m${progress?.isMultiDay ? ` today, ${progress.progressLabel}` : ""})`;
+      if (postponed >= 2) line += ` \u2014 you've postponed this ${postponed} times`;
+      if (task.avoidanceScore >= 3) line += " \u2014 stop avoiding this";
+      lines.push(line);
+    });
   }
-  top.slice(0, 3).forEach((task, index) => {
-    const progress = task.multiDayProgress;
-    const est = progress?.isMultiDay ? progress.todayAllocatedMinutes : (task.estimatedMinutes || 30);
-    const postponed = Number(task.rescheduleCount || 0);
-    let line = `${index + 1}. ${task.title} (${est}m${progress?.isMultiDay ? ` today, ${progress.progressLabel}` : ""})`;
-    if (postponed >= 2) line += ` \u2014 you've postponed this ${postponed} times`;
-    if (task.avoidanceScore >= 3) line += " \u2014 stop avoiding this";
-    lines.push(line);
-  });
   lines.push("");
 
   if (recurring.length > 0) {

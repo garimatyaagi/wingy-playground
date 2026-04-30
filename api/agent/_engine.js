@@ -13,8 +13,11 @@ import {
   getCoreMemory,
   listTaskOccurrences,
   getMultiDayProgress,
+  createLongTermGoal,
+  createGoalMilestone,
+  getSupabaseAdmin,
 } from "./_store.js";
-import { llmParseMessage } from "./_llm.js";
+import { llmParseMessage, llmDecomposeGoal } from "./_llm.js";
 import { buildOptimizedSchedule, formatScheduleForBrief } from "./_optimizer.js";
 
 const ACTION_VERBS = [
@@ -1442,6 +1445,70 @@ export async function generateNudge({
   };
 }
 
+// ─── Long-Term Goal Auto-Sync & Decomposition ───
+
+const SKIP_GOAL_TITLES = new Set([
+  "inbox / unassigned", "general", "inbox", "unassigned",
+]);
+
+async function ensureGoalsDecomposed(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return;
+
+  // 1. Get all goals from the old tasks table
+  const { data: oldGoals, error: oldErr } = await supabase
+    .from("tasks")
+    .select("id, title, status, created_at")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+  if (oldErr || !oldGoals?.length) return;
+
+  // 2. Get existing long-term goals
+  const ltGoals = await listActiveLongTermGoals(userId);
+  const ltTitles = new Set(ltGoals.map((g) => g.title.toLowerCase().trim()));
+
+  // 3. Sync: create long_term_goals entries for old goals that don't have one
+  const newlyCreated = [];
+  for (const og of oldGoals) {
+    const titleLower = (og.title || "").toLowerCase().trim();
+    if (SKIP_GOAL_TITLES.has(titleLower)) continue;
+    if (ltTitles.has(titleLower)) continue;
+    if (ltGoals.length + newlyCreated.length >= 5) break;
+
+    const priority = (ltGoals.length + newlyCreated.length) === 0 ? 1 : 2;
+    const created = await createLongTermGoal(userId, {
+      title: og.title,
+      description: "",
+      scope: "yearly",
+      priority,
+    });
+    if (created) newlyCreated.push(created);
+  }
+
+  // 4. Decompose any long-term goals that have zero milestones
+  const allLtGoals = [...ltGoals, ...newlyCreated];
+  for (const goal of allLtGoals) {
+    const milestones = await listMilestonesForGoal(goal.id);
+    if (milestones.length > 0) continue;
+
+    const decomposition = await llmDecomposeGoal(goal.title, goal.description || "", goal.target_date, userId);
+    if (!decomposition?.milestones) continue;
+
+    for (let i = 0; i < decomposition.milestones.length; i++) {
+      const m = decomposition.milestones[i];
+      await createGoalMilestone(goal.id, userId, {
+        title: m.title,
+        description: m.description || "",
+        orderIndex: i,
+        targetDate: m.targetWeek
+          ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
+          : null,
+      });
+    }
+  }
+}
+
 // ─── Long-Term Goal Daily Task Generation ───
 
 function shouldGenerateForGoalToday(goal, dayOfWeek) {
@@ -1461,6 +1528,13 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
   const existing = await getGoalDailyTasks(userId, dateKey);
   if (existing.length > 0) {
     return { generated: [], existing, skipped: "already_generated" };
+  }
+
+  // Auto-sync old goals and decompose any that are missing milestones
+  try {
+    await ensureGoalsDecomposed(userId);
+  } catch (e) {
+    console.error("ensureGoalsDecomposed failed (non-blocking)", e.message);
   }
 
   const goals = await listActiveLongTermGoals(userId);

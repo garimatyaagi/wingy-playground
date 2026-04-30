@@ -1121,6 +1121,25 @@ export default function App() {
     if (fallback.error) throw fallback.error;
   }
 
+  async function decomposeGoalInBackground(title) {
+    const token = await getToken().catch(() => null);
+    if (!token) return;
+    const base = import.meta.env.VITE_API_BASE_URL?.trim()?.replace(/\/+$/, "") || "";
+    const endpoints = [];
+    if (base) endpoints.push(`${base}/api/ai/goal-decompose`);
+    endpoints.push("/api/ai/goal-decompose");
+    for (const endpoint of endpoints) {
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ title, scope: "yearly" }),
+        });
+        if (resp.ok) return await resp.json();
+      } catch { /* try next endpoint */ }
+    }
+  }
+
   async function createGoal(titleInput) {
     const title = String(titleInput || "").trim();
     if (!title) return null;
@@ -1195,6 +1214,12 @@ export default function App() {
         },
         ...prev,
       ]);
+
+      // Also create in long_term_goals + decompose into milestones (non-blocking)
+      decomposeGoalInBackground(title).catch((err) =>
+        console.warn("Goal decomposition failed (non-blocking):", err.message)
+      );
+
       return data.id;
     } catch (error) {
       console.error("Create goal failed:", { error, title });

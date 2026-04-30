@@ -136,36 +136,50 @@ export default async function handler(req, res) {
       }
     }
 
-    // ─── Bot Pause Check ───
+    // ─── Bot Pause Check (non-blocking) ───
     const isResumeCommand = /^(resume|start)\s*(bot)?\s*$/i.test(rawText.trim());
     if (!isResumeCommand) {
-      const pausedUntil = await getBotPauseStatus(userId);
-      if (pausedUntil) {
-        // Log but don't process — bot is paused
-        await logMessageCapture({
-          userId, rawText, messageSid, fromNumber: from,
-          normalizedText: rawText.toLowerCase().trim(),
-          parsedIntent: "bot_paused", parseConfidence: 1, processed: true,
-          createdTaskIds: [], updatedTaskIds: [],
-          clarificationRequested: false, processingResult: "bot_paused",
-        });
-        res.setHeader("Content-Type", "text/xml");
-        return res.status(200).send(twimlMessage(""));
+      try {
+        const pausedUntil = await getBotPauseStatus(userId);
+        if (pausedUntil) {
+          await logMessageCapture({
+            userId, rawText, messageSid, fromNumber: from,
+            normalizedText: rawText.toLowerCase().trim(),
+            parsedIntent: "bot_paused", parseConfidence: 1, processed: true,
+            createdTaskIds: [], updatedTaskIds: [],
+            clarificationRequested: false, processingResult: "bot_paused",
+          });
+          res.setHeader("Content-Type", "text/xml");
+          return res.status(200).send(twimlMessage(""));
+        }
+      } catch (e) {
+        console.error("bot pause check failed (continuing)", e.message);
       }
     }
 
-    // ─── Per-User Message Lock ───
-    const lock = await acquireMessageLock(userId, messageSid);
-    if (!lock.acquired) {
-      // Another request is processing for this user — return 200 to avoid Twilio retry
-      res.setHeader("Content-Type", "text/xml");
-      return res.status(200).send(twimlMessage(""));
+    // ─── Per-User Message Lock (non-blocking on failure) ───
+    let lockAcquired = false;
+    try {
+      const lock = await acquireMessageLock(userId, messageSid);
+      lockAcquired = lock.acquired;
+      if (!lockAcquired) {
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(""));
+      }
+    } catch (e) {
+      console.error("message lock failed (continuing without lock)", e.message);
+      lockAcquired = false; // proceed without lock
     }
 
-    // ─── Session Tracking ───
+    // ─── Session Tracking (non-blocking) ───
     const profile = inbound.profile || await getAgentProfileByUserId(userId);
-    const sessionTimeoutMinutes = profile?.session_timeout_minutes || 30;
-    const sessionId = await getOrCreateSessionId(userId, sessionTimeoutMinutes);
+    let sessionId = null;
+    try {
+      const sessionTimeoutMinutes = profile?.session_timeout_minutes || 30;
+      sessionId = await getOrCreateSessionId(userId, sessionTimeoutMinutes);
+    } catch (e) {
+      console.error("session tracking failed (continuing)", e.message);
+    }
 
     captureId = await logMessageCapture({
       userId,
@@ -182,39 +196,43 @@ export default async function handler(req, res) {
       processingResult: "received",
     });
 
-    // Store session, media info, and batch tracking
-    if (captureId) {
-      await updateMessageCaptureBatch(captureId, null, sessionId);
-      if (transcription) {
+    // Store session, media info (non-blocking)
+    try {
+      if (captureId && sessionId) {
+        await updateMessageCaptureBatch(captureId, null, sessionId);
+      }
+      if (captureId && transcription) {
         await updateMessageCaptureMedia(captureId, { mediaUrl, transcription, mediaType });
       }
+    } catch (e) {
+      console.error("capture metadata update failed (continuing)", e.message);
     }
 
-    // ─── Message Debounce ───
-    // Check if there are recent messages from this user within debounce window
-    const recentMessages = await getRecentUnprocessedMessages(userId, 3000);
-    const otherRecent = recentMessages.filter((m) => m.id !== captureId);
-    if (otherRecent.length > 0 && otherRecent[0].batch_id) {
-      // Join existing batch — return immediately, the first message will process all
-      if (captureId) await updateMessageCaptureBatch(captureId, otherRecent[0].batch_id, sessionId);
-      await releaseMessageLock(userId);
-      res.setHeader("Content-Type", "text/xml");
-      return res.status(200).send(twimlMessage(""));
-    }
-    // If this is potentially the first of a burst, wait briefly for more
-    const batchId = crypto.randomUUID();
-    if (captureId) await updateMessageCaptureBatch(captureId, batchId, sessionId);
-    await new Promise((r) => setTimeout(r, 2000));
-    // Fetch any messages that arrived during the wait
-    const batchMessages = await getRecentUnprocessedMessages(userId, 4000);
-    if (batchMessages.length > 1) {
-      // Concatenate all batch messages
-      const allTexts = batchMessages.map((m) => m.raw_text).filter(Boolean);
-      rawText = allTexts.join("\n");
-      // Mark all batch messages with same batch_id
-      for (const msg of batchMessages) {
-        if (msg.id !== captureId) await updateMessageCaptureBatch(msg.id, batchId, sessionId);
+    // ─── Message Debounce (non-blocking) ───
+    let batchId = null;
+    try {
+      const recentMsgs = await getRecentUnprocessedMessages(userId, 3000);
+      const otherRecent = recentMsgs.filter((m) => m.id !== captureId);
+      if (otherRecent.length > 0 && otherRecent[0].batch_id) {
+        if (captureId) await updateMessageCaptureBatch(captureId, otherRecent[0].batch_id, sessionId);
+        if (lockAcquired) await releaseMessageLock(userId);
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(""));
       }
+      batchId = crypto.randomUUID();
+      if (captureId) await updateMessageCaptureBatch(captureId, batchId, sessionId);
+      // Brief wait for rapid follow-up messages
+      await new Promise((r) => setTimeout(r, 1500));
+      const batchMessages = await getRecentUnprocessedMessages(userId, 3000);
+      if (batchMessages.length > 1) {
+        const allTexts = batchMessages.map((m) => m.raw_text).filter(Boolean);
+        rawText = allTexts.join("\n");
+        for (const msg of batchMessages) {
+          if (msg.id !== captureId) await updateMessageCaptureBatch(msg.id, batchId, sessionId);
+        }
+      }
+    } catch (e) {
+      console.error("debounce failed (continuing with original message)", e.message);
     }
 
     // Handle greeting / activation messages — opens the 24h session window
@@ -252,8 +270,8 @@ export default async function handler(req, res) {
       const reply = `Bot paused until ${resumeTime}. Send "resume bot" to reactivate.`;
       await updateMessageCapture(captureId, { parsedIntent: "pause_bot", parseConfidence: 1, parseMethod: "keyword", processed: true, processingResult: "bot_paused" });
       await logAgentMessage({ userId, type: "ack", body: reply, relatedTaskIds: [], metadata: { intent: "pause_bot" } });
-      await releaseMessageLock(userId);
-      await markBatchProcessed(batchId);
+      if (lockAcquired) await releaseMessageLock(userId).catch(() => {});
+      if (batchId) await markBatchProcessed(batchId).catch(() => {});
       res.setHeader("Content-Type", "text/xml");
       return res.status(200).send(twimlMessage(reply));
     }
@@ -262,8 +280,8 @@ export default async function handler(req, res) {
       const reply = "Bot resumed. I'm back and listening.";
       await updateMessageCapture(captureId, { parsedIntent: "resume_bot", parseConfidence: 1, parseMethod: "keyword", processed: true, processingResult: "bot_resumed" });
       await logAgentMessage({ userId, type: "ack", body: reply, relatedTaskIds: [], metadata: { intent: "resume_bot" } });
-      await releaseMessageLock(userId);
-      await markBatchProcessed(batchId);
+      if (lockAcquired) await releaseMessageLock(userId).catch(() => {});
+      if (batchId) await markBatchProcessed(batchId).catch(() => {});
       res.setHeader("Content-Type", "text/xml");
       return res.status(200).send(twimlMessage(reply));
     }
@@ -790,13 +808,14 @@ export default async function handler(req, res) {
       result,
     });
 
-    await releaseMessageLock(userId);
-    await markBatchProcessed(batchId);
+    if (lockAcquired) await releaseMessageLock(userId).catch(() => {});
+    if (batchId) await markBatchProcessed(batchId).catch(() => {});
     res.setHeader("Content-Type", "text/xml");
     return res.status(200).send(twimlMessage(reply));
   } catch (error) {
     console.error("whatsapp webhook processing failed", {
-      error,
+      error: error.message,
+      stack: error.stack?.slice(0, 500),
       captureId,
       userId,
     });

@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: "Invalid Twilio signature" });
     }
 
-    const rawText = String(form.Body || form.body || "").trim();
+    let rawText = String(form.Body || form.body || "").trim();
     const from = String(form.From || form.from || "").trim();
     const messageSid = String(form.MessageSid || form.messageSid || form.SmsSid || "").trim() || null;
 

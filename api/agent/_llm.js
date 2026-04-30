@@ -57,6 +57,10 @@ const ActionItemSchema = {
     memoryAction: { type: "string" },
     pulseDelayMinutes: { type: "integer" },
     pulseContext: { type: "string" },
+    totalEstimatedMinutes: { type: "integer" },
+    dailyAllocatedMinutes: { type: "integer" },
+    estimatedDays: { type: "integer" },
+    estimationReasoning: { type: "string" },
   },
   required: [
     "intent", "taskTitle", "dueDate", "estimatedMinutes", "urgency",
@@ -64,6 +68,7 @@ const ActionItemSchema = {
     "completionTarget", "rescheduleDays", "noteText", "goalTitle",
     "pauseDurationMinutes", "memoryKey", "memoryValue", "memoryAction",
     "pulseDelayMinutes", "pulseContext",
+    "totalEstimatedMinutes", "dailyAllocatedMinutes", "estimatedDays", "estimationReasoning",
   ],
 };
 
@@ -184,6 +189,26 @@ For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_wor
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
 If fields don't apply, use empty string or 0.
 
+## TIME ESTIMATION (per action fields)
+Estimate how long tasks REALLY take. Set totalEstimatedMinutes, dailyAllocatedMinutes, estimatedDays, and estimationReasoning.
+
+BOOKS: Recognize book titles. Average book is ~250 pages, read at ~30-40 pages/hour.
+- "Read Atomic Habits" → totalEstimatedMinutes: 270, dailyAllocatedMinutes: 45, estimatedDays: 6, estimationReasoning: "~250 pages at 40 pages/hr = 6.25 hrs. 45min/day = 6 sessions"
+- "Read Sapiens" → totalEstimatedMinutes: 480, dailyAllocatedMinutes: 60, estimatedDays: 8, estimationReasoning: "~450 pages, longer book. 60min/day = 8 sessions"
+
+PROJECTS (multi-day work): Estimate total scope, split into daily blocks of 60-90min.
+- "Build landing page" → totalEstimatedMinutes: 480, dailyAllocatedMinutes: 90, estimatedDays: 6, estimationReasoning: "Design + code + copy + deploy ~8hrs. 90min/day"
+- "Write blog post" → totalEstimatedMinutes: 180, dailyAllocatedMinutes: 60, estimatedDays: 3, estimationReasoning: "Research + draft + edit ~3hrs. 60min/day"
+
+SIMPLE TASKS (single session): totalEstimatedMinutes = estimatedMinutes, estimatedDays = 1, dailyAllocatedMinutes = estimatedMinutes.
+- "Call dentist" → totalEstimatedMinutes: 15, dailyAllocatedMinutes: 15, estimatedDays: 1, estimationReasoning: "Simple phone call"
+- "Send invoice" → totalEstimatedMinutes: 20, dailyAllocatedMinutes: 20, estimatedDays: 1, estimationReasoning: "Quick admin task"
+
+RECURRING TASKS: dailyAllocatedMinutes = per-session time. totalEstimatedMinutes: 0, estimatedDays: 0 (ongoing).
+- "Workout daily" → totalEstimatedMinutes: 0, dailyAllocatedMinutes: 45, estimatedDays: 0, estimationReasoning: "Ongoing habit, 45min per session"
+
+For estimatedMinutes (the field used for today's scheduling), ALWAYS use dailyAllocatedMinutes value.
+
 ## MEMORY (per action fields)
 You have persistent memory. On any action, you can also set memoryAction/memoryKey/memoryValue to manage memory:
 - memoryAction: "save", memoryKey: "morning_routine", memoryValue: "User runs at 6am" — store a fact
@@ -281,7 +306,11 @@ export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) 
   const taskBlock = topTasks
     .map((t, i) => {
       const postponed = Number(t.rescheduleCount || 0);
-      return `${i + 1}. ${t.title} (${t.estimatedMinutes || 30}m)${postponed >= 2 ? ` — postponed ${postponed}x` : ""}`;
+      const progress = t.multiDayProgress;
+      const timeLabel = progress?.isMultiDay
+        ? `${progress.todayAllocatedMinutes}m today — ${progress.progressLabel}`
+        : `${t.estimatedMinutes || 30}m`;
+      return `${i + 1}. ${t.title} (${timeLabel})${postponed >= 2 ? ` — postponed ${postponed}x` : ""}`;
     })
     .join("\n");
 
@@ -309,6 +338,7 @@ Rules:
 - Mention total focus time needed
 - If there are overdue tasks, call them out (be direct if tone is ruthless)
 - If there are calendar events, weave them into the schedule
+- For multi-day tasks (shown as "session X/Y"), mention progress naturally (e.g., "You're on session 3 of 6")
 - End with one motivating line appropriate to the tone
 - Do NOT use markdown. Plain text only with line breaks.`;
 
@@ -339,7 +369,9 @@ export async function llmEveningCheckin(tasks, completedToday = [], profile = {}
   const taskBlock = topTasks
     .map((t, i) => {
       const done = completedToday.some((c) => c.id === t.id);
-      return `${i + 1}. ${t.title} — ${done ? "DONE" : "NOT DONE"}`;
+      const progress = t.multiDayProgress;
+      const progressSuffix = progress?.isMultiDay ? ` (${progress.progressLabel})` : "";
+      return `${i + 1}. ${t.title}${progressSuffix} — ${done ? "DONE" : "NOT DONE"}`;
     })
     .join("\n");
 
@@ -411,17 +443,23 @@ export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}
     if (lines.length > 0) behaviorBlock = `\nBehavioral patterns detected:\n${lines.join("\n")}\n`;
   }
 
+  const progress = target.multiDayProgress;
+  const progressLine = progress?.isMultiDay
+    ? `\nMulti-day progress: ${progress.progressLabel}, ${progress.remainingMinutes}m total remaining`
+    : "";
+  const effectiveMinutes = progress?.isMultiDay ? progress.todayAllocatedMinutes : (target.estimatedMinutes || 30);
+
   const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${tone}.
 
-Top pending task: "${target.title}" (${target.estimatedMinutes || 30}m)
+Top pending task: "${target.title}" (${effectiveMinutes}m today)
 Times postponed: ${postponed}
-Total remaining tasks: ${top.length} (${totalLeft}m total)
+Total remaining tasks: ${top.length} (${totalLeft}m total)${progressLine}
 ${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}${behaviorBlock}
 Rules:
 - Focus on the #1 task
 - If postponed 2+ times, be more direct about it
 - Suggest a specific time block (e.g. "Start a 20-minute sprint")
-- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}
+- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}${progressLine ? "\n- Reference the multi-day progress naturally (e.g., 'session 3 of 6 today')" : ""}
 - ${timeOfDay === "afternoon" ? "Mention that end of day is approaching" : "Encourage starting now"}
 - Keep under 80 words
 - Plain text only`;

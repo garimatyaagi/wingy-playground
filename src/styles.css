@@ -182,7 +182,7 @@ select {
 
 .execApp {
   min-height: 100vh;
-  padding: 28px 22px 40px;
+  padding: 28px 22px 90px;
 }
 
 .execMain {
@@ -1265,41 +1265,54 @@ select {
   gap: 8px;
 }
 
-.appSurfaceTabs {
+/* Bottom navigation bar */
+.bottomNav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 4px;
-  background: var(--surface-soft);
-  border-radius: 999px;
-  width: fit-content;
-}
-
-.appSurfaceTabs .ghostButton.mini {
-  border: none;
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  background: transparent;
-}
-
-.appSurfaceTabs .ghostButton.mini:hover {
-  color: var(--text);
-  background: rgba(49, 57, 251, 0.06);
-}
-
-.appSurfaceTabs .ghostButton.mini.active {
-  color: var(--text);
+  justify-content: space-around;
+  align-items: stretch;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(26, 26, 46, 0.06);
-  border: none;
+  border-top: 1px solid var(--border);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
-.appSurfaceTabs .sprintBadge {
-  margin-left: auto;
+.bottomNavTab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 16px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.bottomNavTab:hover {
+  color: var(--text-secondary);
+}
+
+.bottomNavTab.active {
+  color: var(--accent);
+}
+
+.bottomNavTab.active svg {
+  stroke: var(--accent);
+}
+
+.bottomNavTab svg {
+  flex-shrink: 0;
 }
 
 .appSurfaceArea {
@@ -1321,45 +1334,195 @@ select {
   gap: 12px;
 }
 
-.todayHero {
+/* ─── Today Date Card ─── */
+.todayDateCard {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
+  padding: 20px;
 }
 
-.todayHero h2 {
-  font-size: clamp(22px, 3vw, 32px);
+.todayDayNumber {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--accent);
 }
 
-.agentStatusPill {
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+.todayDateRight {
+  display: grid;
+  gap: 4px;
+}
+
+.todayGreeting {
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: -0.03em;
+}
+
+.todayFullDate {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.todayTimeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  border-radius: 999px;
+  padding: 4px 10px;
+  width: fit-content;
+}
+
+.todayTimeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #F59E0B;
+}
+
+.todayTimeDot.morning { background: #F59E0B; }
+.todayTimeDot.afternoon { background: #3B82F6; }
+.todayTimeDot.evening { background: #8B5CF6; }
+
+/* ─── Today Stats Row ─── */
+.todayStatsRow {
+  display: flex;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.todayStat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  background: rgba(26, 26, 46, 0.07);
-  color: #4d4543;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.agentStatusPill.active {
-  background: rgba(111, 123, 104, 0.18);
-  color: #32412f;
-  border-color: rgba(111, 123, 104, 0.4);
+.todayStat strong {
+  font-size: 16px;
+  color: var(--accent);
 }
 
-.agentStatusPill.needs-review {
-  background: rgba(49, 57, 251, 0.12);
-  color: #7a2923;
-  border-color: rgba(49, 57, 251, 0.32);
+.todayStat.overdue strong { color: #DC2626; }
+.todayStat.blocked strong { color: #F59E0B; }
+
+.todayStat span {
+  color: var(--muted);
 }
 
-.topPriorityCard,
-.nextActionCardClean,
-.latestNoteCard,
-.dueStripCard,
+/* ─── Today Priorities Card ─── */
+.todayPrioritiesCard {
+  display: grid;
+  gap: 10px;
+}
+
+.todayPrioritiesCard h3 {
+  font-size: 18px;
+}
+
+.todayTaskList {
+  display: grid;
+  gap: 2px;
+}
+
+.todayTaskRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.todayTaskRow:last-child {
+  border-bottom: none;
+}
+
+.todayTaskCheck {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  margin-top: 1px;
+  border-radius: 50%;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.todayTaskCheck:hover {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.todayTaskContent {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.todayTaskTitle {
+  all: unset;
+  font-size: 15px;
+  font-weight: 550;
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+.todayTaskTitle:hover {
+  color: var(--accent);
+}
+
+.todayTaskMeta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.todayTaskGoal {
+  font-weight: 500;
+}
+
+.todayTaskUrgency {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.todayTaskUrgency.urgCritical { background: rgba(220, 38, 38, 0.12); color: #DC2626; }
+.todayTaskUrgency.urgHigh { background: rgba(245, 158, 11, 0.12); color: #D97706; }
+.todayTaskUrgency.urgMedium { background: rgba(59, 130, 246, 0.12); color: #3B82F6; }
+.todayTaskUrgency.urgLow { background: rgba(107, 114, 128, 0.08); color: #6B7280; }
+
+.todayTaskActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Legacy card styles still used by other surfaces */
 .inboxSimCard,
 .reviewQueueCard,
 .capturesCard,
@@ -1370,79 +1533,10 @@ select {
   gap: 10px;
 }
 
-.topPriorityCard h3,
-.nextActionCardClean h3,
-.latestNoteCard h3,
 .reviewQueueCard h3,
 .capturesCard h3,
 .yearMiniBoard h3 {
   font-size: 20px;
-}
-
-.priorityListClean {
-  display: grid;
-  gap: 8px;
-}
-
-.priorityCleanRow {
-  border-radius: 16px;
-  border: 1px solid rgba(26, 26, 46, 0.09);
-  background: rgba(255, 251, 246, 0.92);
-  padding: 10px;
-  display: grid;
-  gap: 8px;
-}
-
-.priorityRowActions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.nextActionTitle {
-  font-size: clamp(20px, 2.8vw, 30px);
-  line-height: 1.15;
-}
-
-.nextActionWhy {
-  font-size: 14px;
-  color: #4d4340;
-}
-
-.nextActionButtons {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.dueStrip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.dueStrip > div {
-  border-radius: 14px;
-  border: 1px solid rgba(26, 26, 46, 0.09);
-  background: rgba(255, 251, 246, 0.9);
-  padding: 10px;
-  display: grid;
-  gap: 4px;
-}
-
-.dueStrip span {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.dueStrip strong {
-  font-size: 26px;
-  line-height: 1;
-}
-
-.latestNoteCard p {
-  color: #4f4542;
-  font-size: 15px;
 }
 
 .inboxSimInput {
@@ -1714,6 +1808,16 @@ select {
   background: rgba(28, 30, 33, 0.95);
 }
 
+.nightMode .bottomNav {
+  background: rgba(28, 30, 33, 0.92);
+  border-top-color: rgba(234, 238, 242, 0.08);
+}
+
+.nightMode .todayTaskUrgency.urgCritical { background: rgba(220, 38, 38, 0.2); }
+.nightMode .todayTaskUrgency.urgHigh { background: rgba(245, 158, 11, 0.2); }
+.nightMode .todayTaskUrgency.urgMedium { background: rgba(59, 130, 246, 0.2); }
+.nightMode .todayTaskUrgency.urgLow { background: rgba(107, 114, 128, 0.15); }
+
 .nightMode .textInput,
 .nightMode .select,
 .nightMode .intakeTextarea {
@@ -1755,8 +1859,7 @@ select {
 
   .goalCompactGrid,
   .yearMiniStats,
-  .settingsGrid,
-  .dueStrip {
+  .settingsGrid {
     grid-template-columns: 1fr;
   }
 }
@@ -1809,15 +1912,16 @@ select {
     width: 100%;
   }
 
-  .appSurfaceTabs {
-    width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
+  .bottomNav {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
-  .appSurfaceTabs .sprintBadge {
-    margin-left: 0;
+  .bottomNavTab {
+    padding: 6px 10px;
+  }
+
+  .todayStatsRow {
+    flex-wrap: wrap;
   }
 
   .goalQuickAddRow {

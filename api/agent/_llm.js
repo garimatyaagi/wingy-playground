@@ -1,4 +1,10 @@
 import OpenAI from "openai";
+import {
+  getCoreMemory,
+  upsertCoreMemory,
+  deleteCoreMemory,
+  createPulse,
+} from "./_store.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -28,6 +34,8 @@ const ActionItemSchema = {
         "goal",
         "note",
         "ambiguous",
+        "pause_bot",
+        "resume_bot",
       ],
     },
     taskTitle: { type: "string" },
@@ -43,12 +51,38 @@ const ActionItemSchema = {
     rescheduleDays: { type: "integer" },
     noteText: { type: "string" },
     goalTitle: { type: "string" },
+    pauseDurationMinutes: { type: "integer" },
   },
   required: [
     "intent", "taskTitle", "dueDate", "estimatedMinutes", "urgency",
     "importance", "effortType", "isRecurring", "recurrenceRule", "goalName",
     "completionTarget", "rescheduleDays", "noteText", "goalTitle",
+    "pauseDurationMinutes",
   ],
+};
+
+// Memory tool calls schema returned alongside actions
+const MemoryToolSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: { type: "string", enum: ["save", "update", "delete"] },
+    key: { type: "string" },
+    value: { type: "string" },
+  },
+  required: ["action", "key", "value"],
+};
+
+// Pulse/follow-up scheduling schema
+const PulseToolSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    delayMinutes: { type: "integer" },
+    context: { type: "string" },
+    pulseType: { type: "string" },
+  },
+  required: ["delayMinutes", "context", "pulseType"],
 };
 
 const ParseSchema = {
@@ -61,14 +95,16 @@ const ParseSchema = {
       actions: { type: "array", items: ActionItemSchema },
       confidence: { type: "number" },
       followUpQuestion: { type: "string" },
+      memoryOps: { type: "array", items: MemoryToolSchema },
+      pulseOps: { type: "array", items: PulseToolSchema },
     },
-    required: ["actions", "confidence", "followUpQuestion"],
+    required: ["actions", "confidence", "followUpQuestion", "memoryOps", "pulseOps"],
   },
 };
 
 // ─── LLM Parse Message ───
 
-export async function llmParseMessage(rawText, contextMessages = [], openTasks = []) {
+export async function llmParseMessage(rawText, contextMessages = [], openTasks = [], userId = null) {
   if (!process.env.OPENAI_API_KEY) {
     console.error("llmParseMessage: no OPENAI_API_KEY");
     return { _skip: "no_api_key" };
@@ -86,8 +122,23 @@ export async function llmParseMessage(rawText, contextMessages = [], openTasks =
 
   const today = new Date().toISOString().split("T")[0];
 
-  const systemPrompt = `You are a personal task assistant parsing WhatsApp messages. Today is ${today}.
+  // Fetch core memory for this user
+  let memoryBlock = "";
+  if (userId) {
+    try {
+      const memories = await getCoreMemory(userId);
+      if (memories.length > 0) {
+        memoryBlock = "\n## Your Memory About This User\n" +
+          memories.map((m) => `- ${m.key}: ${m.value}`).join("\n") +
+          "\nReference these facts naturally. Update or delete stale memories.\n";
+      }
+    } catch (e) {
+      console.error("llmParseMessage: getCoreMemory failed", e.message);
+    }
+  }
 
+  const systemPrompt = `You are a personal task assistant parsing WhatsApp messages. Today is ${today}.
+${memoryBlock}
 The user's open tasks:
 ${taskList || "(none)"}
 
@@ -145,12 +196,27 @@ RULES:
 8. RESCHEDULE: "move X to tomorrow", "postpone X"
 9. CANCEL: "cancel X", "drop X", "never mind about X"
 10. NOTES: journal entries, reflections. GOALS: long-term aspirations.
+11. BOT CONTROL: "pause bot" / "stop bot" → pause_bot. "resume bot" / "start bot" → resume_bot. Set pauseDurationMinutes (default 60).
 
 "ambiguous" is ONLY for messages where you genuinely cannot determine ANY intent — like "ok", "hmm". NOT for actionable phrases.
 
 For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_work, admin, health, call, errand, learning.
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
-If fields don't apply, use empty string or 0.`;
+If fields don't apply, use empty string or 0.
+
+## MEMORY TOOLS
+You have persistent memory about this user. Use "memoryOps" to manage it:
+- { action: "save", key: "preference_name", value: "detail" } — store a new fact
+- { action: "update", key: "existing_key", value: "new_value" } — update a fact
+- { action: "delete", key: "old_key", value: "" } — remove an outdated fact
+Save important facts: preferences, habits, people mentioned, work patterns, scheduling constraints. Be selective — save what matters, not everything.
+Return an empty memoryOps array if no memory changes needed.
+
+## FOLLOW-UP SCHEDULING
+Use "pulseOps" to schedule proactive follow-up messages:
+- { delayMinutes: 120, context: "Check if user started the pitch deck", pulseType: "followup" }
+Use when: user says "I'll do it later/after lunch/in a bit", or a contextual follow-up makes sense.
+Be judicious — don't over-schedule. Return empty pulseOps array if no follow-ups needed.`;
 
   const input = [
     { role: "system", content: systemPrompt },
@@ -172,10 +238,54 @@ If fields don't apply, use empty string or 0.`;
     });
 
     const cleaned = stripCodeFences((response.output_text || "").trim());
-    return JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+
+    // Process memory operations in the background
+    if (userId && Array.isArray(parsed.memoryOps) && parsed.memoryOps.length > 0) {
+      for (const op of parsed.memoryOps) {
+        try {
+          if (op.action === "save" || op.action === "update") {
+            await upsertCoreMemory(userId, op.key, op.value);
+          } else if (op.action === "delete") {
+            await deleteCoreMemory(userId, op.key);
+          }
+        } catch (e) {
+          console.error("memoryOp failed", { op, error: e.message });
+        }
+      }
+    }
+
+    // Process pulse scheduling operations
+    if (userId && Array.isArray(parsed.pulseOps) && parsed.pulseOps.length > 0) {
+      for (const pulse of parsed.pulseOps) {
+        try {
+          const fireAt = new Date(Date.now() + (pulse.delayMinutes || 120) * 60 * 1000).toISOString();
+          await createPulse(userId, fireAt, pulse.context || "Follow up", pulse.pulseType || "followup");
+        } catch (e) {
+          console.error("pulseOp failed", { pulse, error: e.message });
+        }
+      }
+    }
+
+    return parsed;
   } catch (err) {
     console.error("llmParseMessage error:", err.message, err.status, err.code, JSON.stringify(err.error || {}).slice(0, 300));
     return { _skip: `llm_error:${err.message || "unknown"}`.slice(0, 200) };
+  }
+}
+
+// ─── Core Memory Helper for Scheduler Prompts ───
+
+async function buildMemoryContext(userId) {
+  if (!userId) return "";
+  try {
+    const memories = await getCoreMemory(userId);
+    if (memories.length === 0) return "";
+    return "\nWhat you know about this user:\n" +
+      memories.map((m) => `- ${m.key}: ${m.value}`).join("\n") +
+      "\nUse this context naturally in your message.\n";
+  } catch {
+    return "";
   }
 }
 
@@ -207,8 +317,10 @@ export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) 
 
   const recurringBlock = recurring.map((t) => `- ${t.title}`).join("\n");
 
-  const prompt = `Write a concise, personal morning briefing for today (${today}). Tone: ${tone}.
+  const memoryContext = await buildMemoryContext(profile?.userId);
 
+  const prompt = `Write a concise, personal morning briefing for today (${today}). Tone: ${tone}.
+${memoryContext}
 Today's priorities:
 ${taskBlock || "No tasks scheduled."}
 
@@ -347,6 +459,40 @@ Rules:
     return (response.output_text || "").trim();
   } catch (err) {
     console.error("llmNudge error:", err.message);
+    return null;
+  }
+}
+
+// ─── LLM Pulse Message (for proactive follow-ups) ───
+
+export async function llmPulseMessage(context, profile = {}) {
+  const tone = profile.tone || "firm";
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const memoryContext = await buildMemoryContext(profile?.userId);
+
+  const prompt = `Write a brief, casual follow-up WhatsApp message. Tone: ${tone}.
+${memoryContext}
+Context for the follow-up: "${context}"
+
+Rules:
+- Keep under 40 words
+- Be natural and casual, like a friend checking in
+- Reference the context directly
+- End with a simple question or prompt for action
+- Plain text only`;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: "You are a personal productivity assistant sending brief WhatsApp follow-ups." },
+        { role: "user", content: prompt },
+      ],
+    });
+    return (response.output_text || "").trim();
+  } catch (err) {
+    console.error("llmPulseMessage error:", err.message);
     return null;
   }
 }

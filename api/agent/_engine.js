@@ -539,7 +539,7 @@ export async function parseMessageIntentWithLLM(rawText, userId, now = new Date(
       return aDate < bDate ? 1 : -1; // newest first
     });
 
-    const llmResult = await llmParseMessage(rawText, contextMessages, openTasks);
+    const llmResult = await llmParseMessage(rawText, contextMessages, openTasks, userId);
     if (llmResult?._skip) {
       const regexResult = parseMessageIntent(rawText, now);
       regexResult.parseMethod = "regex_fallback";
@@ -619,6 +619,12 @@ function mapLlmAction(a, rawText, confidence) {
   }
   if (a.intent === "ambiguous") {
     result.clarificationQuestion = a.followUpQuestion || "Could you be more specific?";
+  }
+  if (a.intent === "pause_bot") {
+    result.pauseDurationMinutes = a.pauseDurationMinutes || 60;
+  }
+  if (a.intent === "resume_bot") {
+    // no extra fields needed
   }
 
   return result;
@@ -1070,6 +1076,10 @@ export function buildRichResponse(actionsTaken, ctx, calendarEvents = []) {
       lines.push(`Cancelled: "${action.task.title}"`);
     } else if (action.type === "goal_created" && action.goal) {
       lines.push(`Goal captured: "${action.goal.title}"`);
+    } else if (action.type === "bot_paused") {
+      return `Bot paused until ${action.resumeTime}. Send "resume bot" to reactivate.`;
+    } else if (action.type === "bot_resumed") {
+      return "Bot resumed. I'm back and listening.";
     } else if (action.type === "note_saved") {
       lines.push("Noted.");
     } else if (action.type === "update_noted") {

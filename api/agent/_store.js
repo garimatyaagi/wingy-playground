@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -1034,4 +1035,259 @@ export async function fetchTaskPostponeCount(taskId) {
     .eq("event_type", "rescheduled");
   if (error) return 0;
   return count || 0;
+}
+
+// ─── Core Memory (MemGPT-inspired) ───
+
+export async function getCoreMemory(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase
+    .from("agent_core_memory")
+    .select("key, value, updated_at")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (!isMissingTable(error)) console.error("getCoreMemory failed", { error, userId });
+    return [];
+  }
+  return data || [];
+}
+
+export async function upsertCoreMemory(userId, key, value) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId || !key) return false;
+  const { error } = await supabase
+    .from("agent_core_memory")
+    .upsert(
+      { user_id: userId, key, value, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,key" }
+    );
+  if (error) {
+    if (!isMissingTable(error)) console.error("upsertCoreMemory failed", { error, userId, key });
+    return false;
+  }
+  return true;
+}
+
+export async function deleteCoreMemory(userId, key) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId || !key) return false;
+  const { error } = await supabase
+    .from("agent_core_memory")
+    .delete()
+    .eq("user_id", userId)
+    .eq("key", key);
+  if (error) {
+    if (!isMissingTable(error)) console.error("deleteCoreMemory failed", { error, userId, key });
+    return false;
+  }
+  return true;
+}
+
+// ─── Message Debounce ───
+
+export async function getRecentUnprocessedMessages(userId, windowMs = 3000) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const cutoff = new Date(Date.now() - windowMs).toISOString();
+  const { data, error } = await supabase
+    .from("message_captures")
+    .select("id, raw_text, batch_id, created_at")
+    .eq("user_id", userId)
+    .eq("batch_processed", false)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: true });
+  if (error) {
+    if (!isMissingTable(error) && !isMissingColumn(error)) {
+      console.error("getRecentUnprocessedMessages failed", { error, userId });
+    }
+    return [];
+  }
+  return data || [];
+}
+
+export async function markBatchProcessed(batchId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !batchId) return;
+  await supabase
+    .from("message_captures")
+    .update({ batch_processed: true })
+    .eq("batch_id", batchId);
+}
+
+export async function updateMessageCaptureBatch(captureId, batchId, sessionId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !captureId) return;
+  const patch = {};
+  if (batchId) patch.batch_id = batchId;
+  if (sessionId) patch.session_id = sessionId;
+  if (Object.keys(patch).length === 0) return;
+  await supabase.from("message_captures").update(patch).eq("id", captureId);
+}
+
+// ─── Session Expiry ───
+
+export async function getOrCreateSessionId(userId, timeoutMinutes = 30) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return crypto.randomUUID();
+  const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from("message_captures")
+    .select("session_id, created_at")
+    .eq("user_id", userId)
+    .not("session_id", "is", null)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (data?.session_id) return data.session_id;
+  return crypto.randomUUID();
+}
+
+export async function getSessionMessages(userId, sessionId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId || !sessionId) return [];
+  const { data, error } = await supabase
+    .from("message_captures")
+    .select("id, raw_text, parsed_intent, created_at")
+    .eq("user_id", userId)
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  if (error) return [];
+  return data || [];
+}
+
+// ─── Proactive Pulse System ───
+
+export async function createPulse(userId, fireAt, context, pulseType = "followup") {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId || !fireAt || !context) return null;
+  const { data, error } = await supabase
+    .from("agent_scheduled_pulses")
+    .insert({
+      user_id: userId,
+      fire_at: fireAt,
+      context,
+      pulse_type: pulseType,
+      fired: false,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    if (!isMissingTable(error)) console.error("createPulse failed", { error, userId });
+    return null;
+  }
+  return data?.id || null;
+}
+
+export async function getPendingPulses() {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("agent_scheduled_pulses")
+    .select("id, user_id, fire_at, context, pulse_type")
+    .eq("fired", false)
+    .lte("fire_at", now)
+    .order("fire_at", { ascending: true })
+    .limit(20);
+  if (error) {
+    if (!isMissingTable(error)) console.error("getPendingPulses failed", { error });
+    return [];
+  }
+  return data || [];
+}
+
+export async function markPulseFired(pulseId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !pulseId) return;
+  await supabase
+    .from("agent_scheduled_pulses")
+    .update({ fired: true })
+    .eq("id", pulseId);
+}
+
+// ─── Per-User Message Locks ───
+
+export async function acquireMessageLock(userId, messageSid) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return { acquired: false };
+  // Try inserting — if conflict, lock already held
+  const { data, error } = await supabase
+    .from("agent_message_locks")
+    .insert({ user_id: userId, message_sid: messageSid, locked_at: new Date().toISOString() })
+    .select("user_id")
+    .single();
+  if (!error && data) return { acquired: true };
+  // Check if existing lock is stale (> 30s)
+  const { data: existing } = await supabase
+    .from("agent_message_locks")
+    .select("locked_at, message_sid")
+    .eq("user_id", userId)
+    .single();
+  if (existing) {
+    const lockAge = Date.now() - new Date(existing.locked_at).getTime();
+    if (lockAge > 30_000) {
+      // Force-acquire stale lock
+      await supabase
+        .from("agent_message_locks")
+        .update({ message_sid: messageSid, locked_at: new Date().toISOString() })
+        .eq("user_id", userId);
+      return { acquired: true, wasStale: true };
+    }
+    return { acquired: false, existingMessageSid: existing.message_sid };
+  }
+  return { acquired: false };
+}
+
+export async function releaseMessageLock(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return;
+  await supabase
+    .from("agent_message_locks")
+    .delete()
+    .eq("user_id", userId);
+}
+
+// ─── Bot Pause ───
+
+export async function getBotPauseStatus(userId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const { data } = await supabase
+    .from("agent_profiles")
+    .select("bot_paused_until")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data?.bot_paused_until) return null;
+  const pausedUntil = new Date(data.bot_paused_until);
+  return pausedUntil > new Date() ? pausedUntil : null;
+}
+
+export async function setBotPause(userId, pausedUntil) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return false;
+  const { error } = await supabase
+    .from("agent_profiles")
+    .update({ bot_paused_until: pausedUntil ? new Date(pausedUntil).toISOString() : null })
+    .eq("user_id", userId);
+  if (error) {
+    console.error("setBotPause failed", { error, userId });
+    return false;
+  }
+  return true;
+}
+
+// ─── Media Capture Update ───
+
+export async function updateMessageCaptureMedia(captureId, { mediaUrl, transcription, mediaType }) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !captureId) return;
+  const patch = {};
+  if (mediaUrl) patch.media_url = mediaUrl;
+  if (transcription) patch.transcription = transcription;
+  if (mediaType) patch.media_type = mediaType;
+  if (Object.keys(patch).length === 0) return;
+  await supabase.from("message_captures").update(patch).eq("id", captureId);
 }

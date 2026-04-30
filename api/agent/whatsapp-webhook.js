@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   createTaskStep,
   fetchLastAgentMessage,
@@ -14,6 +15,15 @@ import {
   saveTaskOccurrence,
   updateMessageCapture,
   updateTaskStep,
+  acquireMessageLock,
+  releaseMessageLock,
+  getBotPauseStatus,
+  setBotPause,
+  getRecentUnprocessedMessages,
+  markBatchProcessed,
+  updateMessageCaptureBatch,
+  getOrCreateSessionId,
+  updateMessageCaptureMedia,
 } from "./_store.js";
 import {
   buildMessageContext,
@@ -26,8 +36,10 @@ import {
   bodyToForm,
   twimlMessage,
   validateTwilioSignature,
+  sendWhatsAppMessage,
 } from "./_twilio.js";
 import { getUpcomingEvents } from "./_calendar.js";
+import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";
@@ -93,6 +105,58 @@ export default async function handler(req, res) {
     }
 
     userId = inbound.userId;
+
+    // ─── Voice Message Transcription ───
+    const numMedia = parseInt(form.NumMedia || form.numMedia || "0", 10);
+    const mediaType = String(form.MediaContentType0 || form.mediaContentType0 || "").trim();
+    const mediaUrl = String(form.MediaUrl0 || form.mediaUrl0 || "").trim();
+    let transcription = null;
+    if (numMedia > 0 && mediaType.startsWith("audio/") && mediaUrl) {
+      try {
+        const audioBuffer = await downloadTwilioMedia(mediaUrl);
+        if (audioBuffer) {
+          transcription = await transcribeAudio(audioBuffer, mediaType);
+          if (transcription) {
+            rawText = transcription;
+            console.log("voice transcription:", { userId, transcription: transcription.slice(0, 100) });
+          }
+        }
+      } catch (err) {
+        console.error("voice transcription failed", { userId, error: err.message });
+      }
+    }
+
+    // ─── Bot Pause Check ───
+    const isResumeCommand = /^(resume|start)\s*(bot)?\s*$/i.test(rawText.trim());
+    if (!isResumeCommand) {
+      const pausedUntil = await getBotPauseStatus(userId);
+      if (pausedUntil) {
+        // Log but don't process — bot is paused
+        await logMessageCapture({
+          userId, rawText, messageSid, fromNumber: from,
+          normalizedText: rawText.toLowerCase().trim(),
+          parsedIntent: "bot_paused", parseConfidence: 1, processed: true,
+          createdTaskIds: [], updatedTaskIds: [],
+          clarificationRequested: false, processingResult: "bot_paused",
+        });
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send(twimlMessage(""));
+      }
+    }
+
+    // ─── Per-User Message Lock ───
+    const lock = await acquireMessageLock(userId, messageSid);
+    if (!lock.acquired) {
+      // Another request is processing for this user — return 200 to avoid Twilio retry
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(""));
+    }
+
+    // ─── Session Tracking ───
+    const profile = inbound.profile || await getAgentProfileByUserId(userId);
+    const sessionTimeoutMinutes = profile?.session_timeout_minutes || 30;
+    const sessionId = await getOrCreateSessionId(userId, sessionTimeoutMinutes);
+
     captureId = await logMessageCapture({
       userId,
       rawText,
@@ -107,6 +171,41 @@ export default async function handler(req, res) {
       clarificationRequested: false,
       processingResult: "received",
     });
+
+    // Store session, media info, and batch tracking
+    if (captureId) {
+      await updateMessageCaptureBatch(captureId, null, sessionId);
+      if (transcription) {
+        await updateMessageCaptureMedia(captureId, { mediaUrl, transcription, mediaType });
+      }
+    }
+
+    // ─── Message Debounce ───
+    // Check if there are recent messages from this user within debounce window
+    const recentMessages = await getRecentUnprocessedMessages(userId, 3000);
+    const otherRecent = recentMessages.filter((m) => m.id !== captureId);
+    if (otherRecent.length > 0 && otherRecent[0].batch_id) {
+      // Join existing batch — return immediately, the first message will process all
+      if (captureId) await updateMessageCaptureBatch(captureId, otherRecent[0].batch_id, sessionId);
+      await releaseMessageLock(userId);
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(""));
+    }
+    // If this is potentially the first of a burst, wait briefly for more
+    const batchId = crypto.randomUUID();
+    if (captureId) await updateMessageCaptureBatch(captureId, batchId, sessionId);
+    await new Promise((r) => setTimeout(r, 2000));
+    // Fetch any messages that arrived during the wait
+    const batchMessages = await getRecentUnprocessedMessages(userId, 4000);
+    if (batchMessages.length > 1) {
+      // Concatenate all batch messages
+      const allTexts = batchMessages.map((m) => m.raw_text).filter(Boolean);
+      rawText = allTexts.join("\n");
+      // Mark all batch messages with same batch_id
+      for (const msg of batchMessages) {
+        if (msg.id !== captureId) await updateMessageCaptureBatch(msg.id, batchId, sessionId);
+      }
+    }
 
     // Handle greeting / activation messages — opens the 24h session window
     const greeting = rawText.toLowerCase().replace(/[^a-z]/g, "");
@@ -126,6 +225,37 @@ export default async function handler(req, res) {
       const welcomeReply = "Hey! I'm your 365 Tasks agent. I'll send you morning briefs, nudges, and evening check-ins on WhatsApp. Just text me tasks like 'Finish pitch deck by Friday' and I'll track them for you.";
       res.setHeader("Content-Type", "text/xml");
       return res.status(200).send(twimlMessage(welcomeReply));
+    }
+
+    // ─── Bot Pause / Resume Commands ───
+    const pauseMatch = rawText.match(/^pause\s*(bot)?\s*(?:for\s+(\d+)\s*(hour|hr|hours|min|mins|minutes))?\s*$/i);
+    if (pauseMatch) {
+      let durationMs = 60 * 60 * 1000; // default 1 hour
+      if (pauseMatch[2]) {
+        const amount = parseInt(pauseMatch[2], 10);
+        const unit = (pauseMatch[3] || "").toLowerCase();
+        durationMs = unit.startsWith("min") ? amount * 60 * 1000 : amount * 60 * 60 * 1000;
+      }
+      const pauseUntil = new Date(Date.now() + durationMs);
+      await setBotPause(userId, pauseUntil);
+      const resumeTime = pauseUntil.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: profile?.timezone || "Asia/Kolkata" });
+      const reply = `Bot paused until ${resumeTime}. Send "resume bot" to reactivate.`;
+      await updateMessageCapture(captureId, { parsedIntent: "pause_bot", parseConfidence: 1, parseMethod: "keyword", processed: true, processingResult: "bot_paused" });
+      await logAgentMessage({ userId, type: "ack", body: reply, relatedTaskIds: [], metadata: { intent: "pause_bot" } });
+      await releaseMessageLock(userId);
+      await markBatchProcessed(batchId);
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(reply));
+    }
+    if (isResumeCommand) {
+      await setBotPause(userId, null);
+      const reply = "Bot resumed. I'm back and listening.";
+      await updateMessageCapture(captureId, { parsedIntent: "resume_bot", parseConfidence: 1, parseMethod: "keyword", processed: true, processingResult: "bot_resumed" });
+      await logAgentMessage({ userId, type: "ack", body: reply, relatedTaskIds: [], metadata: { intent: "resume_bot" } });
+      await releaseMessageLock(userId);
+      await markBatchProcessed(batchId);
+      res.setHeader("Content-Type", "text/xml");
+      return res.status(200).send(twimlMessage(reply));
     }
 
     // ─── Pre-LLM keyword shortcuts for common patterns ───
@@ -563,6 +693,19 @@ export default async function handler(req, res) {
           await logParsedAction({ captureId, userId, actionType: action.intent, actionPayload: { target: action.completionTarget }, result: isCancellation ? "cancel_needs_target" : "archive_needs_target", confidence: parsedResult.confidence });
         }
 
+      } else if (action.intent === "pause_bot") {
+        const durationMs = (action.pauseDurationMinutes || 60) * 60 * 1000;
+        const pauseUntil = new Date(Date.now() + durationMs);
+        await setBotPause(userId, pauseUntil);
+        const resumeTime = pauseUntil.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: profile?.timezone || "Asia/Kolkata" });
+        actionsTaken.push({ type: "bot_paused", resumeTime });
+        await logParsedAction({ captureId, userId, actionType: "pause_bot", result: "bot_paused", confidence: parsedResult.confidence });
+
+      } else if (action.intent === "resume_bot") {
+        await setBotPause(userId, null);
+        actionsTaken.push({ type: "bot_resumed" });
+        await logParsedAction({ captureId, userId, actionType: "resume_bot", result: "bot_resumed", confidence: parsedResult.confidence });
+
       } else {
         // ambiguous or unknown intent
         clarificationRequested = true;
@@ -629,7 +772,7 @@ export default async function handler(req, res) {
     console.log("whatsapp inbound processed", {
       userId,
       from,
-      rawText,
+      rawText: rawText.slice(0, 100),
       actions: actions.map((a) => a.intent),
       createdTaskIds,
       updatedTaskIds,
@@ -637,6 +780,8 @@ export default async function handler(req, res) {
       result,
     });
 
+    await releaseMessageLock(userId);
+    await markBatchProcessed(batchId);
     res.setHeader("Content-Type", "text/xml");
     return res.status(200).send(twimlMessage(reply));
   } catch (error) {
@@ -645,6 +790,8 @@ export default async function handler(req, res) {
       captureId,
       userId,
     });
+    // Always release lock on error
+    if (userId) await releaseMessageLock(userId).catch(() => {});
     if (captureId) {
       await updateMessageCapture(captureId, {
         parsedIntent: "error",

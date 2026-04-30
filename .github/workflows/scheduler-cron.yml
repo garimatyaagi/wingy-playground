@@ -1,0 +1,19 @@
+name: Agent Scheduler (every 5 min)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger-scheduler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Ping scheduler endpoint
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.SCHEDULER_URL }}" \
+            --max-time 30 \
+            || echo "Scheduler ping failed (non-fatal)"

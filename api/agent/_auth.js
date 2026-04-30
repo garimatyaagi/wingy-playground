@@ -15,9 +15,17 @@ export async function authenticateRequest(req) {
   if (!token) return null;
 
   try {
-    const payload = await verifyToken(token, { secretKey });
+    const payload = await verifyToken(token, {
+      secretKey,
+      authorizedParties: [
+        "https://365tasks.online",
+        "http://localhost:5173",
+        "http://localhost:3000",
+      ],
+    });
     return payload?.sub || null;
-  } catch {
+  } catch (err) {
+    console.error("clerk_auth_failed", err?.message || err);
     return null;
   }
 }

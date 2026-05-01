@@ -3059,6 +3059,10 @@ export default function App() {
                   onReschedule={(task) => void smartReschedule(task)}
                   onStartNow={startTaskNow}
                   onStartSprint={startTaskSprint}
+                  weeklyMomentum={weeklyMomentum}
+                  executionMetrics={executionMetrics}
+                  atRiskTasks={atRiskTasks}
+                  procrastinationSignals={procrastinationSignals}
                 />
               ) : null}
 

@@ -17,29 +17,7 @@ function Reveal({ children, delay = 0, y = 32, className = "" }) {
   );
 }
 
-/* Wavy section divider — the signature visual element */
-function WaveDivider({ fill = "#FFFCEC", flip = false }) {
-  return (
-    <div
-      className={`waveDivider${flip ? " waveDividerFlip" : ""}`}
-      style={{ color: fill }}
-    >
-      <svg
-        viewBox="0 0 1440 80"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        preserveAspectRatio="none"
-      >
-        <path
-          d="M0 40C240 80 480 0 720 40C960 80 1200 0 1440 40V80H0V40Z"
-          fill="currentColor"
-        />
-      </svg>
-    </div>
-  );
-}
-
-/* WhatsApp Demo */
+/* WhatsApp Demo — shown once in the hero */
 function WhatsAppDemo() {
   const bubbles = [
     {
@@ -130,34 +108,40 @@ export default function Landing() {
       {/* ─── Nav ─── */}
       <nav className={`landingNav${scrolled ? " scrolled" : " heroNav"}`}>
         <a className="navLogo" href="/">365 Tasks</a>
-        <div className="navLinks">
-          <a className="navLink" href="#how">How it works</a>
-          <a className="navLink" href="#demo">Demo</a>
-        </div>
-        <a className="navCta" href="/app">Sign in</a>
+        <a className="navCta" href="/app">Get started</a>
       </nav>
 
-      {/* ─── Hero (blue, matte, textured) ─── */}
+      {/* ─── Hero ─── */}
       <section className="landingHero">
         <div className="noiseOverlay" />
         <div className="heroInner">
           <div className="heroText">
+            <motion.p
+              className="heroLabel"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0, ease: EASE }}
+            >
+              001 — WhatsApp-native planner
+            </motion.p>
+
             <motion.h1
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.05, ease: EASE }}
+              transition={{ duration: 0.7, delay: 0.1, ease: EASE }}
             >
-              The daily planner that lives in WhatsApp.
+              Your daily plan,
+              <br />
+              inside WhatsApp.
             </motion.h1>
 
             <motion.p
               className="heroSub"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.2, ease: EASE }}
+              transition={{ duration: 0.7, delay: 0.25, ease: EASE }}
             >
-              Text your tasks. Get a plan every morning.
-              Reply to execute. AI handles the rest.
+              Text your tasks. Wake up to a plan. Reply to execute.
             </motion.p>
 
             <motion.a
@@ -165,7 +149,7 @@ export default function Landing() {
               href="/app"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.35, ease: EASE }}
+              transition={{ duration: 0.6, delay: 0.4, ease: EASE }}
             >
               Get started — it's free
             </motion.a>
@@ -175,106 +159,76 @@ export default function Landing() {
             className="heroPhone"
             initial={{ opacity: 0, y: 40, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.9, delay: 0.3, ease: EASE }}
+            transition={{ duration: 0.9, delay: 0.35, ease: EASE }}
           >
             <WhatsAppDemo />
           </motion.div>
         </div>
-
-        <WaveDivider fill="#FFFCEC" />
       </section>
 
-      {/* ─── How it works (warm cream block) ─── */}
-      <section className="landingHow" id="how">
-        <div className="howInner">
+      {/* ─── Statements ─── */}
+      <section className="landingStatements">
+        <div className="noiseOverlay" />
+        <div className="statementsInner">
           <Reveal>
-            <h2>You text. It plans. You reply. It adapts.</h2>
+            <div className="statement">
+              <p className="statementLabel">001</p>
+              <h2 className="statementHeading">
+                Dump tasks in plain English.
+              </h2>
+              <p className="statementBody">
+                No forms, no fields. Just text what needs to happen.
+              </p>
+            </div>
           </Reveal>
 
-          <div className="howSteps">
-            <Reveal delay={0.05}>
-              <div className="howStep">
-                <div className="howNum">1</div>
-                <div className="howBody">
-                  <h3>Dump your tasks in plain English</h3>
-                  <p>
-                    "Finish pitch deck by Friday." "Call investor after lunch."
-                    The AI parses everything — deadlines, priorities, even
-                    compound tasks.
-                  </p>
-                </div>
-              </div>
-            </Reveal>
+          <Reveal delay={0.05}>
+            <div className="statement">
+              <p className="statementLabel">002</p>
+              <h2 className="statementHeading">
+                Wake up to a realistic plan.
+              </h2>
+              <p className="statementBody">
+                Built around your calendar, energy, and deadlines.
+              </p>
+            </div>
+          </Reveal>
 
-            <Reveal delay={0.1}>
-              <div className="howStep">
-                <div className="howNum">2</div>
-                <div className="howBody">
-                  <h3>Wake up to a plan that respects your calendar</h3>
-                  <p>
-                    Every morning, get a prioritized daily plan built around
-                    your meetings, energy, and deadlines. Not a rigid
-                    schedule — a realistic one.
-                  </p>
-                </div>
-              </div>
-            </Reveal>
-
-            <Reveal delay={0.15}>
-              <div className="howStep">
-                <div className="howNum">3</div>
-                <div className="howBody">
-                  <h3>Execute through the chat you already use</h3>
-                  <p>
-                    Reply "done" to complete tasks. Get a nudge when you're
-                    drifting. The agent learns your patterns and adjusts over
-                    time.
-                  </p>
-                </div>
-              </div>
-            </Reveal>
-          </div>
+          <Reveal delay={0.1}>
+            <div className="statement">
+              <p className="statementLabel">003</p>
+              <h2 className="statementHeading">
+                Reply to execute. It adapts.
+              </h2>
+              <p className="statementBody">
+                The agent learns your patterns and adjusts over time.
+              </p>
+            </div>
+          </Reveal>
         </div>
-
-        <WaveDivider fill="#E0E0F7" />
       </section>
 
-      {/* ─── Demo (light blue-gray block) ─── */}
-      <section className="landingDemo" id="demo">
-        <Reveal>
-          <h2>This is what getting things done looks like.</h2>
-        </Reveal>
-        <Reveal delay={0.1} className="demoPhone">
-          <WhatsAppDemo />
-        </Reveal>
-
-        <WaveDivider fill="#3139FB" />
-      </section>
-
-      {/* ─── CTA (blue block, textured) ─── */}
+      {/* ─── CTA ─── */}
       <section className="landingCta">
         <div className="noiseOverlay" />
         <Reveal>
           <h2>
-            Start with your current list.
-            <br />
             Text your first task.
+            <br />
+            Start right now.
           </h2>
         </Reveal>
         <Reveal delay={0.1}>
           <a className="ctaBtn" href="/app">Get started — it's free</a>
         </Reveal>
-
-        <WaveDivider fill="#2702C2" />
       </section>
 
-      {/* ─── Footer (dark blue block) ─── */}
+      {/* ─── Footer ─── */}
       <footer className="landingFooter">
         <div className="noiseOverlay" />
         <div className="footerInner">
           <span className="footerBrand">365 Tasks</span>
           <div className="footerLinks">
-            <a href="#how">How it works</a>
             <a href="#">Privacy</a>
             <a href="#">Terms</a>
           </div>

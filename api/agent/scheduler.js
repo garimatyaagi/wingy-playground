@@ -60,17 +60,10 @@ function localTimeParts(date, timezone) {
   };
 }
 
-function withinWindow(currentMinutes, targetMinutes, tolerance = 20) {
-  return Math.abs(currentMinutes - targetMinutes) <= tolerance;
-}
-
 function shouldSend(profile, type, local, sentTypes) {
   if (!profile.whatsAppNumber) return false;
   if (sentTypes.has(type)) return false;
-  const startMinutes = parseTimeToMinutes(profile.workdayStart, "09:00");
-  const endMinutes = parseTimeToMinutes(profile.workdayEnd, "18:00");
   if (!profile.weekendsEnabled && (local.weekday === "sat" || local.weekday === "sun")) return false;
-  if (local.minuteOfDay < startMinutes - 90 || local.minuteOfDay > endMinutes + 180) return false;
 
   const schedule = {
     morning_brief: parseTimeToMinutes(profile.morningBriefTime, "08:00"),
@@ -78,7 +71,14 @@ function shouldSend(profile, type, local, sentTypes) {
     afternoon_followup: parseTimeToMinutes(profile.afternoonFollowupTime, "16:00"),
     evening_checkin: parseTimeToMinutes(profile.eveningCheckinTime, "20:30"),
   };
-  return withinWindow(local.minuteOfDay, schedule[type], 22);
+  const orderedTypes = ["morning_brief", "midday_nudge", "afternoon_followup", "evening_checkin"];
+  const idx = orderedTypes.indexOf(type);
+  const targetMinutes = schedule[type];
+  const nextTarget = idx < orderedTypes.length - 1 ? schedule[orderedTypes[idx + 1]] : targetMinutes + 180;
+
+  // Send if we're past the scheduled time but before the next message type's time
+  // This catch-up window handles unreliable cron intervals (GitHub Actions can skip hours)
+  return local.minuteOfDay >= targetMinutes && local.minuteOfDay < nextTarget;
 }
 
 // Convert a local time string (e.g. "12:30") in the user's timezone to a UTC Date for today.

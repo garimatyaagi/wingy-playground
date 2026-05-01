@@ -177,7 +177,16 @@ export default async function handler(req, res) {
   }
 
   if (!isCronAuth && !isUserAuth) {
-    console.error("scheduler_auth_failed");
+    console.error("scheduler_auth_failed", {
+      hasCronSecret: Boolean(cronSecret),
+      cronSecretLen: cronSecret.length,
+      hasBearer: Boolean(bearerToken),
+      bearerLen: bearerToken.length,
+      hasQueryToken: Boolean(queryToken),
+      queryTokenLen: queryToken.length,
+      candidateLen: tokenCandidate.length,
+      lengthMatch: tokenCandidate.length === cronSecret.length,
+    });
     return res.status(401).json({ error: "Unauthorized" });
   }
 

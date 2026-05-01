@@ -7,7 +7,7 @@ import {
   listActiveLongTermGoals,
 } from "./_store.js";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 15000 });
 
 function stripCodeFences(s) {
   return s

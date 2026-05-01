@@ -47,6 +47,7 @@ import {
   skipReasonToPatch,
   summarizeCheckinOutcome,
 } from "./lib/agentLoop";
+import { inferBranch } from "./lib/branchConfig";
 import { createClerkSupabaseClient } from "./lib/supabaseClient";
 import Landing from "./pages/Landing";
 
@@ -550,7 +551,7 @@ export default function App() {
         let goalsRows = null;
         let goalsError = null;
         const richGoalSelect =
-          "id, title, description, status, progress_type, target_value, current_value, color, archived_at, created_at";
+          "id, title, description, status, progress_type, target_value, current_value, color, archived_at, created_at, branch";
         const basicGoalSelect = "id, title, created_at";
         const first = await supabase
           .from("tasks")
@@ -592,6 +593,7 @@ export default function App() {
           currentValue: Number.isFinite(row.current_value) ? row.current_value : 0,
           color: row.color || "#3139FB",
           archivedAt: row.archived_at || null,
+          branch: row.branch || null,
           createdAt: row.created_at || new Date().toISOString(),
           tasks: byGoal[row.id] || [],
         }));
@@ -610,7 +612,23 @@ export default function App() {
           .forEach((goal) => merged.set(goal.id, goal));
 
         if (!cancelled) {
-          setGoals(Array.from(merged.values()));
+          // Auto-classify goals that have no branch
+          const finalGoals = Array.from(merged.values()).map((goal) => {
+            if (!goal.branch) {
+              return { ...goal, branch: inferBranch(goal.title) };
+            }
+            return goal;
+          });
+          // Persist branch classification for unclassified remote goals (fire-and-forget)
+          if (supabase) {
+            for (const goal of finalGoals) {
+              const original = merged.get(goal.id);
+              if (!original?.branch && goal.branch && !isLocalGoal(goal.id)) {
+                supabase.from("tasks").update({ branch: goal.branch }).eq("id", goal.id).then(() => {});
+              }
+            }
+          }
+          setGoals(finalGoals);
           setLoading(false);
         }
       } catch (error) {
@@ -1165,6 +1183,8 @@ export default function App() {
     const existing = goals.find((goal) => goal.title.toLowerCase() === title.toLowerCase());
     if (existing) return existing.id;
 
+    const branch = inferBranch(title);
+
     if (!supabase) {
       const localId = `local-${makeId()}`;
       setGoals((prev) => [
@@ -1178,6 +1198,7 @@ export default function App() {
           currentValue: 0,
           color: "#3139FB",
           archivedAt: null,
+          branch,
           tasks: [],
           createdAt: new Date().toISOString(),
         },
@@ -1200,9 +1221,10 @@ export default function App() {
           current_value: 0,
           color: "#3139FB",
           archived_at: null,
+          branch,
           user_id: user?.id || null,
         })
-        .select("id, title, description, status, progress_type, target_value, current_value, color, archived_at, created_at")
+        .select("id, title, description, status, progress_type, target_value, current_value, color, archived_at, created_at, branch")
         .single();
       data = first.data;
       error = first.error;
@@ -1228,6 +1250,7 @@ export default function App() {
           currentValue: Number.isFinite(data.current_value) ? data.current_value : 0,
           color: data.color || "#3139FB",
           archivedAt: data.archived_at || null,
+          branch: data.branch || branch,
           tasks: [],
           createdAt: data.created_at || new Date().toISOString(),
         },
@@ -1254,6 +1277,7 @@ export default function App() {
           currentValue: 0,
           color: "#3139FB",
           archivedAt: null,
+          branch,
           tasks: [],
           createdAt: new Date().toISOString(),
         },
@@ -1306,6 +1330,22 @@ export default function App() {
       console.error("Save goal failed:", { error, goalId, patch });
       setGoals(snapshot);
       setDataError(formatSupabaseError(error, "Could not save goal updates."));
+    }
+  }
+
+  async function changeBranch(goalId, branchId) {
+    const snapshot = goals;
+    setGoals((prev) =>
+      prev.map((goal) => (goal.id === goalId ? { ...goal, branch: branchId || null } : goal))
+    );
+    if (isLocalGoal(goalId) || !supabase) return;
+    try {
+      const { error } = await supabase.from("tasks").update({ branch: branchId || null }).eq("id", goalId);
+      if (error && String(error.code || "") !== "42703") throw error;
+    } catch (error) {
+      console.error("Change branch failed:", { error, goalId, branchId });
+      setGoals(snapshot);
+      setDataError(formatSupabaseError(error, "Could not update goal branch."));
     }
   }
 
@@ -3065,6 +3105,7 @@ export default function App() {
                   onMoveTask={(sourceGoalId, taskId, targetGoalId) =>
                     void moveTaskBetweenGoals(sourceGoalId, taskId, targetGoalId)
                   }
+                  onChangeBranch={(goalId, branchId) => void changeBranch(goalId, branchId)}
                 />
               ) : null}
 

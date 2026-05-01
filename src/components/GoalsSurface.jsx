@@ -1,4 +1,6 @@
 import { useState } from "react";
+import GoalBranchesView from "./GoalBranchesView";
+import { LIFE_BRANCHES, getBranch, computeBranchStats } from "../lib/branchConfig";
 
 function goalProgress(goal) {
   const tasks = goal.tasks || [];
@@ -53,6 +55,7 @@ function GoalAccordion({
   onDeleteTask,
   onSnoozeTask,
   onMoveTask,
+  onChangeBranch,
 }) {
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(goal.title || "");
@@ -132,6 +135,19 @@ function GoalAccordion({
             <button type="button" className="ghostButton mini danger" onClick={() => onDeleteGoal(goal.id)}>
               Delete
             </button>
+            {onChangeBranch ? (
+              <select
+                className="select miniSelect branchPicker"
+                value={goal.branch || ""}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onChangeBranch(goal.id, e.target.value)}
+              >
+                <option value="">Uncategorized</option>
+                {LIFE_BRANCHES.map((b) => (
+                  <option key={b.id} value={b.id}>{b.icon} {b.label}</option>
+                ))}
+              </select>
+            ) : null}
           </div>
 
           {/* Task decomposition tree */}
@@ -255,8 +271,10 @@ export default function GoalsSurface({
   onDeleteTask,
   onSnoozeTask,
   onMoveTask,
+  onChangeBranch,
 }) {
   const [expandedId, setExpandedId] = useState(null);
+  const [selectedBranch, setSelectedBranch] = useState(null);
 
   const toggleGoal = (id) => setExpandedId((prev) => (prev === id ? null : id));
 
@@ -268,16 +286,50 @@ export default function GoalsSurface({
     return sum + (g.tasks || []).filter((t) => !t.isNote && (t.status === "done" || t.completedAt)).length;
   }, 0);
 
+  // Filter goals for the selected branch
+  const branchGoals = selectedBranch
+    ? goals.filter((g) => g.branch === selectedBranch)
+    : goals;
+
+  const activeBranch = selectedBranch ? getBranch(selectedBranch) : null;
+  const branchStats = selectedBranch ? computeBranchStats(goals, selectedBranch) : null;
+
   return (
     <section className="goalsSurface">
       {/* Header */}
       <article className="cardShell goalsHeaderCard">
         <div className="goalsHeaderTop">
           <div>
-            <h2>Goals</h2>
-            <p className="subtle">Your long-term goals, broken down into achievable tasks.</p>
+            {selectedBranch ? (
+              <>
+                <button
+                  type="button"
+                  className="branchBackButton"
+                  onClick={() => { setSelectedBranch(null); setExpandedId(null); }}
+                >
+                  &#8592; All Branches
+                </button>
+                <h2 className="branchDrilldownTitle">
+                  <span className="branchDrilldownIcon">{activeBranch.icon}</span>
+                  {activeBranch.label}
+                </h2>
+              </>
+            ) : (
+              <>
+                <h2>Your Life Branches</h2>
+                <p className="subtle">Goals organized by what matters most.</p>
+              </>
+            )}
           </div>
-          {goals.length > 0 ? (
+          {selectedBranch && branchStats ? (
+            <div className="goalsHeaderStats">
+              <span><strong>{branchStats.goalCount}</strong> goal{branchStats.goalCount !== 1 ? "s" : ""}</span>
+              <span className="goalStatDivider" />
+              <span><strong>{branchStats.activeTasks}</strong> active</span>
+              <span className="goalStatDivider" />
+              <span><strong>{branchStats.doneTasks}</strong> done</span>
+            </div>
+          ) : !selectedBranch && goals.length > 0 ? (
             <div className="goalsHeaderStats">
               <span><strong>{goals.length}</strong> goal{goals.length !== 1 ? "s" : ""}</span>
               <span className="goalStatDivider" />
@@ -306,36 +358,44 @@ export default function GoalsSurface({
         </div>
       </article>
 
-      {/* Goal accordion list */}
-      <div className="goalAccordionList">
-        {goals.length === 0 ? (
-          <article className="cardShell">
-            <div className="emptyHint">
-              <p>No goals yet.</p>
-              <p className="subtle">Type a goal name above and press Enter or click Add.</p>
-            </div>
-          </article>
-        ) : (
-          goals.map((goal) => (
-            <GoalAccordion
-              key={goal.id}
-              goal={goal}
-              goals={goals}
-              expanded={expandedId === goal.id}
-              onToggle={() => toggleGoal(goal.id)}
-              onEditGoal={onEditGoal}
-              onArchiveGoal={onArchiveGoal}
-              onDeleteGoal={onDeleteGoal}
-              onAddTask={onAddTask}
-              onOpenTask={onOpenTask}
-              onToggleTaskDone={onToggleTaskDone}
-              onDeleteTask={onDeleteTask}
-              onSnoozeTask={onSnoozeTask}
-              onMoveTask={onMoveTask}
-            />
-          ))
-        )}
-      </div>
+      {/* Branch overview OR drilled-down goal list */}
+      {!selectedBranch ? (
+        <GoalBranchesView
+          goals={goals}
+          onSelectBranch={(branchId) => { setSelectedBranch(branchId); setExpandedId(null); }}
+        />
+      ) : (
+        <div className="goalAccordionList">
+          {branchGoals.length === 0 ? (
+            <article className="cardShell">
+              <div className="emptyHint">
+                <p>No goals in {activeBranch.label} yet.</p>
+                <p className="subtle">Add a goal above — it will be auto-categorized here.</p>
+              </div>
+            </article>
+          ) : (
+            branchGoals.map((goal) => (
+              <GoalAccordion
+                key={goal.id}
+                goal={goal}
+                goals={branchGoals}
+                expanded={expandedId === goal.id}
+                onToggle={() => toggleGoal(goal.id)}
+                onEditGoal={onEditGoal}
+                onArchiveGoal={onArchiveGoal}
+                onDeleteGoal={onDeleteGoal}
+                onAddTask={onAddTask}
+                onOpenTask={onOpenTask}
+                onToggleTaskDone={onToggleTaskDone}
+                onDeleteTask={onDeleteTask}
+                onSnoozeTask={onSnoozeTask}
+                onMoveTask={onMoveTask}
+                onChangeBranch={onChangeBranch}
+              />
+            ))
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -1612,6 +1612,165 @@ select {
   flex-wrap: wrap;
 }
 
+/* ─── Goal Branches ─── */
+
+.branchBackButton {
+  all: unset;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  margin-bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.branchBackButton:hover {
+  text-decoration: underline;
+}
+
+.branchDrilldownTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.branchDrilldownIcon {
+  font-size: 24px;
+}
+
+.branchTreeWrap {
+  padding: 4px 0;
+}
+
+.branchGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  position: relative;
+  padding: 28px 0;
+}
+
+/* Central trunk line */
+.branchGrid::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(26, 26, 46, 0.08) 15%,
+    rgba(49, 57, 251, 0.15) 50%,
+    rgba(26, 26, 46, 0.08) 85%,
+    transparent
+  );
+  transform: translateX(-50%);
+  border-radius: 2px;
+}
+
+.branchCard {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  cursor: pointer;
+  text-align: center;
+  position: relative;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.branchCard:hover {
+  transform: scale(1.03);
+  box-shadow: 0 4px 20px rgba(26, 26, 46, 0.08);
+  border-color: var(--branch-color, var(--accent));
+}
+
+.branchCard:active {
+  transform: scale(0.98);
+}
+
+/* Connector lines from trunk to cards */
+.branchCard::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: rgba(26, 26, 46, 0.1);
+}
+
+.branchCard:nth-child(odd)::before {
+  right: -12px;
+}
+
+.branchCard:nth-child(even)::before {
+  left: -12px;
+}
+
+/* Progress ring */
+.branchProgressRing {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--branch-color, var(--accent)) calc(var(--progress) * 1%),
+    rgba(26, 26, 46, 0.06) 0
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.branchProgressRing::after {
+  content: "";
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.branchIcon {
+  position: absolute;
+  font-size: 20px;
+  z-index: 1;
+  line-height: 1;
+}
+
+.branchLabel {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.branchGoalCount {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.branchPct {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--branch-color, var(--accent));
+}
+
+.branchPicker {
+  margin-left: auto;
+  font-size: 12px;
+  max-width: 140px;
+}
+
 /* ─── Goals Accordion ─── */
 
 .goalsHeaderTop {

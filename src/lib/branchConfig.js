@@ -1,12 +1,12 @@
 // Life Branches — the 6 categories that goals are organized under
 
 export const LIFE_BRANCHES = [
-  { id: "finance",       label: "Finance",          icon: "\uD83D\uDCB0", color: "#10B981" },
-  { id: "growth",        label: "Personal Growth",  icon: "\u2728",       color: "#8B5CF6" },
-  { id: "career",        label: "Career",           icon: "\uD83D\uDCBC", color: "#3B82F6" },
-  { id: "health",        label: "Health",           icon: "\u2764\uFE0F", color: "#EF4444" },
-  { id: "relationships", label: "Relationships",    icon: "\uD83D\uDC9B", color: "#F59E0B" },
-  { id: "creativity",    label: "Creativity & Fun", icon: "\uD83C\uDFA8", color: "#EC4899" },
+  { id: "finance",       label: "Finance",          color: "#10B981" },
+  { id: "growth",        label: "Personal Growth",  color: "#8B5CF6" },
+  { id: "career",        label: "Career",           color: "#3B82F6" },
+  { id: "health",        label: "Health",            color: "#EF4444" },
+  { id: "relationships", label: "Relationships",    color: "#F59E0B" },
+  { id: "creativity",    label: "Creativity & Fun", color: "#EC4899" },
 ];
 
 const BRANCH_KEYWORDS = {

@@ -228,9 +228,9 @@ export default function CalendarSurface({
       });
     }
 
-    // Add optimized schedule items if available (they have start/end times)
+    // Add optimized schedule items ONLY for today (not future dates)
     const scheduledIds = new Set();
-    if (optimizedSchedule?.schedule) {
+    if (isSelectedToday && optimizedSchedule?.schedule) {
       for (const entry of optimizedSchedule.schedule) {
         scheduledIds.add(entry.taskId);
         const task = selectedTasks.find((t) => t.id === entry.taskId) || {};
@@ -276,7 +276,7 @@ export default function CalendarSurface({
     });
 
     return items;
-  }, [selectedEvents, selectedTasks, optimizedSchedule]);
+  }, [selectedEvents, selectedTasks, optimizedSchedule, isSelectedToday]);
 
   const goalById = useMemo(() => {
     const m = {};

@@ -1357,31 +1357,25 @@ select {
   gap: 12px;
 }
 
-/* ─── Today Date Card ─── */
-.todayDateCard {
+/* ─── Today Greeting Block ─── */
+.todayGreetingBlock {
   display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 20px;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 20px 4px 8px;
+  gap: 16px;
 }
 
-.todayDayNumber {
-  font-size: 64px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--accent);
-}
-
-.todayDateRight {
+.todayGreetingLeft {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .todayGreeting {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
 .todayFullDate {
@@ -1390,82 +1384,129 @@ select {
   font-weight: 500;
 }
 
-.todayTimeChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--surface-soft);
-  border-radius: 999px;
-  padding: 4px 10px;
-  width: fit-content;
-}
-
-.todayTimeDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #F59E0B;
-}
-
-.todayTimeDot.morning { background: #F59E0B; }
-.todayTimeDot.afternoon { background: #3B82F6; }
-.todayTimeDot.evening { background: #8B5CF6; }
-
-/* ─── Today Stats Row ─── */
-.todayStatsRow {
-  display: flex;
-  gap: 8px;
-  padding: 0 4px;
-}
-
-.todayStat {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 6px 14px;
+.todayInlineStats {
   font-size: 13px;
   font-weight: 600;
-}
-
-.todayStat strong {
-  font-size: 16px;
-  color: var(--accent);
-}
-
-.todayStat.overdue strong { color: #DC2626; }
-.todayStat.blocked strong { color: #F59E0B; }
-
-.todayStat span {
   color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Momentum line ─── */
+.todayMomentumLine {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.todayMomentumLine span:not(:last-child)::after {
+  content: "\00b7";
+  margin-left: 6px;
+}
+
+.todayFreshWeek {
+  padding: 0 4px;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* ─── Insight nudge ─── */
+.todayInsightNudge {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 
 /* ─── Today Priorities Card ─── */
 .todayPrioritiesCard {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
-.todayPrioritiesCard h3 {
-  font-size: 18px;
+/* ─── Up Next (primary task) ─── */
+.todayUpNext {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.todayUpNextLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.todayUpNextRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.todayUpNextRow.taskAvoided {
+  border-left: 3px solid #DC2626;
+  padding-left: 10px;
+  margin-left: -4px;
+}
+
+.todayUpNextContent {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.todayUpNextTitle {
+  all: unset;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.todayUpNextTitle:hover {
+  color: var(--accent);
+}
+
+/* ─── Also Today (secondary tasks) ─── */
+.todayAlsoToday {
+  padding-top: 2px;
+}
+
+.todayAlsoLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
 }
 
 .todayTaskList {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .todayTaskRow {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding: 10px 4px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1484,7 +1525,6 @@ select {
   color: var(--muted);
   cursor: pointer;
   padding: 0;
-  margin-top: 1px;
   border-radius: 50%;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
@@ -1503,10 +1543,11 @@ select {
 
 .todayTaskTitle {
   all: unset;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 550;
   cursor: pointer;
   line-height: 1.35;
+  color: var(--text-secondary);
 }
 
 .todayTaskTitle:hover {
@@ -1519,6 +1560,7 @@ select {
   font-size: 12px;
   color: var(--muted);
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .todayTaskGoal {
@@ -1555,52 +1597,18 @@ select {
   margin-left: -4px;
 }
 
-.todayTaskActions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ─── Weekly Momentum Banner ─── */
-.todayMomentumBanner {
-  padding: 14px 16px;
-}
-
-.momentumRow {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.momentumStat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 56px;
-}
-
-.momentumStat strong {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text);
-}
-
-.momentumStat span {
-  font-size: 11px;
+/* ─── Time context footer ─── */
+.todayTimeContext {
+  font-size: 12px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.momentumInsight {
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.4;
+  text-align: center;
+  padding: 12px 0 4px;
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  margin-top: 10px;
+  font-weight: 500;
 }
+
+/* (momentum banner replaced by inline .todayMomentumLine above) */
 
 /* ─── Avoidance Alerts Card ─── */
 .todayAvoidanceCard {
@@ -2578,8 +2586,10 @@ select {
     padding: 6px 10px;
   }
 
-  .todayStatsRow {
-    flex-wrap: wrap;
+  .todayGreetingBlock {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 
   .goalQuickAddRow {

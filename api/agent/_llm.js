@@ -614,15 +614,20 @@ ${memoryContext}${existingGoalsBlock}
 Rules:
 1. Create 3-6 milestones, ordered chronologically. Each milestone should take 2-8 weeks.
 2. Each milestone should have 1-3 repeatable daily/weekly tasks that drive progress.
-3. Tasks should be TINY and specific — under 30 minutes each. The smaller the better.
-4. Use "frequency" to indicate how often: "daily", "3x/week", "2x/week", "weekly".
-5. "effortType" must be one of: deep_work, admin, health, call, errand, learning.
-6. "targetWeek" = week number from today when this milestone should be reached.
-7. "dailyHabitSuggestion" = an implementation intention anchored to an existing routine.
+3. CRITICAL: Task titles must be ATOMIC DAILY ACTIONS a person can do in one sitting.
+   NEVER restate the goal quantity. The task title appears as the user's daily to-do item.
+   WRONG: "Read 20 books", "Complete books 1-5", "Run 500 miles"
+   RIGHT: "Read for 30 minutes", "Read one chapter", "Run for 25 minutes"
+4. Tasks should be TINY and specific — under 30 minutes each. The smaller the better.
+5. Use "frequency" to indicate how often: "daily", "3x/week", "2x/week", "weekly".
+6. "effortType" must be one of: deep_work, admin, health, call, errand, learning.
+7. "targetWeek" = week number from today when this milestone should be reached.
+8. "dailyHabitSuggestion" = an implementation intention anchored to an existing routine.
    Use the user's known routines from memory if available. Format: "After [existing routine], [new habit]".
-8. "weeklyCheckpoint" = what to review each week to track progress.
-9. "suggestedPriority" = 1 (daily attention), 2 (2-3x/week), or 3 (weekly). Consider existing goals workload.
-10. Be realistic about pacing. Don't front-load everything into week 1.`;
+9. "weeklyCheckpoint" = what to review each week to track progress.
+10. "suggestedPriority" = 1 (daily attention), 2 (2-3x/week), or 3 (weekly). Consider existing goals workload.
+11. Be realistic about pacing. Don't front-load everything into week 1.
+12. If the goal description includes specific items (e.g., book titles, course names), reference them in milestone titles.`;
 
   try {
     const response = await client.responses.create({
@@ -645,6 +650,90 @@ Rules:
     return JSON.parse(cleaned);
   } catch (err) {
     console.error("llmDecomposeGoal error:", err.message);
+    return null;
+  }
+}
+
+// ─── Goal Refinement: Generate clarifying questions ───
+
+export async function llmGoalRefinement(goalTitle, memoryContext = "") {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `You are a personal goal coach. The user just told you about a long-term goal. Before breaking it down into a plan, you need to understand it better. Ask 2-3 short, specific clarifying questions to understand:
+1. The specifics (e.g., which books, what kind of exercise, which skills)
+2. Their current baseline (how much they already do, their experience level)
+3. Their preferred time/routine for this activity
+
+Keep it conversational and warm — this is WhatsApp, not a form. Ask all questions in ONE message. Use line breaks between questions.
+${memoryContext ? `\nWhat you already know about the user:\n${memoryContext}` : ""}
+Don't repeat questions about things you already know from memory.`,
+        },
+        {
+          role: "user",
+          content: `My new goal: "${goalTitle}"`,
+        },
+      ],
+    });
+    return (response.output_text || "").trim();
+  } catch (err) {
+    console.error("llmGoalRefinement error:", err.message);
+    return null;
+  }
+}
+
+// ─── Goal Refinement: Extract structured context from user's answers ───
+
+export async function llmExtractGoalContext(goalTitle, userAnswers) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `Extract structured context from the user's answers about their goal. Return a JSON object with these fields:
+- "specificItems": array of specific items mentioned (book titles, exercises, courses, etc.) — empty array if none
+- "currentBaseline": string describing their current level/experience (e.g., "reads 1 book per month", "never exercised") — empty string if unknown
+- "preferredTime": string for when they want to do this (e.g., "before bed", "morning", "after work") — empty string if not mentioned
+- "enrichedDescription": a 1-2 sentence summary combining the goal with these details, suitable for feeding into a goal decomposition system
+
+Be concise. Extract only what they actually said, don't invent details.`,
+        },
+        {
+          role: "user",
+          content: `Goal: "${goalTitle}"\n\nUser's answers:\n${userAnswers}`,
+        },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "goal_context",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              specificItems: { type: "array", items: { type: "string" } },
+              currentBaseline: { type: "string" },
+              preferredTime: { type: "string" },
+              enrichedDescription: { type: "string" },
+            },
+            required: ["specificItems", "currentBaseline", "preferredTime", "enrichedDescription"],
+          },
+        },
+      },
+    });
+    const cleaned = stripCodeFences((response.output_text || "").trim());
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("llmExtractGoalContext error:", err.message);
     return null;
   }
 }

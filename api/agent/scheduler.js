@@ -12,6 +12,10 @@ import {
   listActiveLongTermGoals,
   listMilestonesForGoal,
   countGoalTaskCompletions,
+  getCoreMemory,
+  deleteCoreMemory,
+  updateLongTermGoal,
+  createGoalMilestone,
 } from "./_store.js";
 import {
   buildEveningCheckin,
@@ -21,7 +25,7 @@ import {
   recomputeDailyPlan,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
-import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage, llmWeeklyGoalReview } from "./_llm.js";
+import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage, llmWeeklyGoalReview, llmDecomposeGoal } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 import { authenticateRequest } from "./_auth.js";
 
@@ -440,6 +444,56 @@ export default async function handler(req, res) {
         await markPulseFired(pulse.id);
         continue;
       }
+      // Handle goal refinement timeout: auto-decompose if user didn't reply
+      if (pulse.pulse_type === "goal_refinement_timeout") {
+        try {
+          const memories = await getCoreMemory(pulse.user_id);
+          const draftingGoalMemory = memories.find((m) => m.key === "drafting_goal_id");
+          if (draftingGoalMemory) {
+            // User never replied — decompose with what we have
+            const goalId = draftingGoalMemory.value;
+            const goalTitleMemory = memories.find((m) => m.key === "drafting_goal_title");
+            const goalTitle = goalTitleMemory?.value || "your goal";
+
+            await deleteCoreMemory(pulse.user_id, "drafting_goal_id");
+            await deleteCoreMemory(pulse.user_id, "drafting_goal_title");
+            await updateLongTermGoal(goalId, { status: "active" });
+
+            const decomposition = await llmDecomposeGoal(goalTitle, "", null, pulse.user_id);
+            if (decomposition?.milestones) {
+              for (let i = 0; i < decomposition.milestones.length; i++) {
+                const m = decomposition.milestones[i];
+                await createGoalMilestone(goalId, pulse.user_id, {
+                  title: m.title,
+                  description: m.description || "",
+                  orderIndex: i,
+                  targetDate: m.targetWeek
+                    ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
+                    : null,
+                  tasks: m.tasks || [],
+                });
+              }
+            }
+
+            const body = `I went ahead and broke down "${goalTitle}" into a plan. You can always refine it later by telling me more about your preferences.`;
+            await sendAndLog({
+              userId: pulse.user_id,
+              to: pulseProfile.whatsAppNumber,
+              type: "goal_refinement_timeout",
+              body,
+              relatedTaskIds: [],
+              metadata: { goalId },
+            });
+          }
+          // else: user already replied (drafting state cleared), skip
+        } catch (err) {
+          console.error("goal refinement timeout failed", { error: err.message, pulseId: pulse.id });
+        }
+        await markPulseFired(pulse.id);
+        pulseReport.push({ pulseId: pulse.id, userId: pulse.user_id, sent: true, type: "goal_refinement_timeout" });
+        continue;
+      }
+
       // Generate contextual follow-up using LLM
       const pulseBody = await llmPulseMessage(pulse.context, pulseProfile).catch(() => null);
       const body = pulseBody || `Quick check-in: ${pulse.context}`;

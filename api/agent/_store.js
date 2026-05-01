@@ -1461,11 +1461,12 @@ export async function createGoalMilestone(goalId, userId, payload) {
     target_date: payload.targetDate || null,
     status: "pending",
     order_index: Number.isFinite(payload.orderIndex) ? payload.orderIndex : 0,
+    tasks: JSON.stringify(payload.tasks || []),
   };
   const { data, error } = await supabase
     .from("goal_milestones")
     .insert(row)
-    .select("id, goal_id, title, description, target_date, status, order_index, created_at")
+    .select("id, goal_id, title, description, target_date, status, order_index, tasks, created_at")
     .single();
   if (error) {
     if (isMissingTable(error)) {
@@ -1483,7 +1484,7 @@ export async function listMilestonesForGoal(goalId) {
   if (!supabase || !goalId) return [];
   const { data, error } = await supabase
     .from("goal_milestones")
-    .select("id, goal_id, title, description, target_date, status, order_index, created_at, completed_at")
+    .select("id, goal_id, title, description, target_date, status, order_index, tasks, created_at, completed_at")
     .eq("goal_id", goalId)
     .order("order_index", { ascending: true });
   if (error) {

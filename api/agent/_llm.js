@@ -736,8 +736,10 @@ const GoalDecompositionSchema = {
                   frequency: { type: "string" },
                   estimatedMinutes: { type: "integer" },
                   effortType: { type: "string" },
+                  focusDepth: { type: "string" },
+                  contextTags: { type: "array", items: { type: "string" } },
                 },
-                required: ["title", "frequency", "estimatedMinutes", "effortType"],
+                required: ["title", "frequency", "estimatedMinutes", "effortType", "focusDepth", "contextTags"],
               },
             },
           },
@@ -789,13 +791,15 @@ Rules:
 4. Tasks should be TINY and specific — under 30 minutes each. The smaller the better.
 5. Use "frequency" to indicate how often: "daily", "3x/week", "2x/week", "weekly".
 6. "effortType" must be one of: deep_work, admin, health, call, errand, learning.
-7. "targetWeek" = week number from today when this milestone should be reached.
-8. "dailyHabitSuggestion" = an implementation intention anchored to an existing routine.
+7. "focusDepth" must be "deep" (requires uninterrupted focus) or "shallow" (can be done while multitasking or in short bursts).
+8. "contextTags" = array of what's needed, e.g. ["computer"], ["phone"], ["outdoor"], ["quiet"], ["gym"], ["kitchen"]. Pick 1-2 relevant tags.
+9. "targetWeek" = week number from today when this milestone should be reached.
+10. "dailyHabitSuggestion" = an implementation intention anchored to an existing routine.
    Use the user's known routines from memory if available. Format: "After [existing routine], [new habit]".
-9. "weeklyCheckpoint" = what to review each week to track progress.
-10. "suggestedPriority" = 1 (daily attention), 2 (2-3x/week), or 3 (weekly). Consider existing goals workload.
-11. Be realistic about pacing. Don't front-load everything into week 1.
-12. If the goal description includes specific items (e.g., book titles, course names), reference them in milestone titles.`;
+11. "weeklyCheckpoint" = what to review each week to track progress.
+12. "suggestedPriority" = 1 (daily attention), 2 (2-3x/week), or 3 (weekly). Consider existing goals workload.
+13. Be realistic about pacing. Don't front-load everything into week 1.
+14. If the goal description includes specific items (e.g., book titles, course names), reference them in milestone titles.`;
 
   try {
     const response = await client.responses.create({

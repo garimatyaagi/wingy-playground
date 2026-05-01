@@ -304,7 +304,7 @@ export async function listOpenTasks(userId) {
     if (goalIds.length === 0) return [];
 
     const richSelect =
-      "id, task_id, text, done, minutes, estimate_minutes, next_action, completed_at, created_at, updated_at, due_date, urgency, importance, is_blocked, blocked_by_task_id, ai_confidence, source_type, is_note, suggested_time_slot, type, status, priority_score, effort_type, description, recurrence_rule, is_recurring, actual_minutes, scheduled_date, scheduled_start, scheduled_end, avoidance_score, reschedule_count, total_estimated_minutes, daily_allocated_minutes, estimated_days, estimation_reasoning";
+      "id, task_id, text, done, minutes, estimate_minutes, next_action, completed_at, created_at, updated_at, due_date, urgency, importance, is_blocked, blocked_by_task_id, ai_confidence, source_type, is_note, suggested_time_slot, type, status, priority_score, effort_type, description, recurrence_rule, is_recurring, actual_minutes, scheduled_date, scheduled_start, scheduled_end, avoidance_score, reschedule_count, total_estimated_minutes, daily_allocated_minutes, estimated_days, estimation_reasoning, long_term_goal_id, milestone_id, focus_depth, context_tags";
     const first = await supabase
       .from("task_steps")
       .select(richSelect)
@@ -363,6 +363,11 @@ export async function listOpenTasks(userId) {
         dailyAllocatedMinutes: Number.isFinite(row.daily_allocated_minutes) ? row.daily_allocated_minutes : null,
         estimatedDays: Number.isFinite(row.estimated_days) ? row.estimated_days : null,
         estimationReasoning: row.estimation_reasoning || null,
+        effortType: row.effort_type || "deep_work",
+        longTermGoalId: row.long_term_goal_id || null,
+        milestoneId: row.milestone_id || null,
+        focusDepth: row.focus_depth || null,
+        contextTags: parseMaybeJson(row.context_tags, null),
       };
     });
   } catch (error) {
@@ -436,6 +441,8 @@ export async function createTaskStep(userId, taskPayload) {
     daily_allocated_minutes: Number.isFinite(taskPayload.dailyAllocatedMinutes) ? taskPayload.dailyAllocatedMinutes : null,
     estimated_days: Number.isFinite(taskPayload.estimatedDays) ? taskPayload.estimatedDays : null,
     estimation_reasoning: taskPayload.estimationReasoning || null,
+    focus_depth: taskPayload.focusDepth || null,
+    context_tags: taskPayload.contextTags ? JSON.stringify(taskPayload.contextTags) : null,
   };
 
   const first = await supabase
@@ -1508,6 +1515,7 @@ export async function updateMilestone(milestoneId, updates) {
   const patch = {};
   if (updates.status !== undefined) patch.status = updates.status;
   if (updates.title !== undefined) patch.title = updates.title;
+  if (updates.tasks !== undefined) patch.tasks = JSON.stringify(updates.tasks);
   if (updates.status === "completed") patch.completed_at = new Date().toISOString();
   if (updates.status === "in_progress" && !patch.completed_at) patch.completed_at = null;
   const { data, error } = await supabase

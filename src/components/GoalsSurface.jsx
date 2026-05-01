@@ -363,6 +363,7 @@ export default function GoalsSurface({
         <GoalBranchesView
           goals={goals}
           onSelectBranch={(branchId) => { setSelectedBranch(branchId); setExpandedId(null); }}
+          onSelectGoal={(branchId, goalId) => { setSelectedBranch(branchId); setExpandedId(goalId); }}
         />
       ) : (
         <div className="goalAccordionList">

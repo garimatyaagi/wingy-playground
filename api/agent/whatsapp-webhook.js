@@ -29,6 +29,11 @@ import {
   listActiveLongTermGoals,
   getPendingPulsesForUser,
   markPulseFired,
+  getCoreMemory,
+  upsertCoreMemory,
+  deleteCoreMemory,
+  updateLongTermGoal,
+  createPulse,
 } from "./_store.js";
 import {
   buildMessageContext,
@@ -40,7 +45,7 @@ import {
   recomputeDailyPlan,
   resolveTaskMatch,
 } from "./_engine.js";
-import { llmNudge, llmEveningCheckin, llmMorningBrief } from "./_llm.js";
+import { llmNudge, llmEveningCheckin, llmMorningBrief, llmGoalRefinement, llmExtractGoalContext } from "./_llm.js";
 import {
   bodyToForm,
   twimlMessage,
@@ -196,6 +201,80 @@ export default async function handler(req, res) {
         }
       } catch (err) {
         console.error("onboarding intercept check failed (continuing)", err.message);
+      }
+    }
+
+    // ─── Goal Refinement Conversation Intercept ───
+    if (rawText.trim()) {
+      try {
+        const memories = await getCoreMemory(userId);
+        const draftingGoalMemory = memories.find((m) => m.key === "drafting_goal_id");
+        if (draftingGoalMemory) {
+          const goalId = draftingGoalMemory.value;
+          // Extract context from user's answers
+          const draftingTitleMemory = memories.find((m) => m.key === "drafting_goal_title");
+          const goalTitle = draftingTitleMemory?.value || "their goal";
+          const goalContext = await llmExtractGoalContext(goalTitle, rawText);
+
+          // Update goal with enriched description and activate it
+          const enrichedDesc = goalContext?.enrichedDescription || rawText;
+          await updateLongTermGoal(goalId, {
+            description: enrichedDesc,
+            status: "active",
+          });
+
+          // Store useful context in core memory for future use
+          if (goalContext?.preferredTime) {
+            await upsertCoreMemory(userId, `goal_${goalTitle.replace(/\s+/g, "_").toLowerCase().slice(0, 30)}_time`, goalContext.preferredTime);
+          }
+          if (goalContext?.currentBaseline) {
+            await upsertCoreMemory(userId, `goal_${goalTitle.replace(/\s+/g, "_").toLowerCase().slice(0, 30)}_baseline`, goalContext.currentBaseline);
+          }
+
+          // Clean up drafting state
+          await deleteCoreMemory(userId, "drafting_goal_id");
+          await deleteCoreMemory(userId, "drafting_goal_title");
+
+          // Now decompose with the enriched context
+          const decomposition = await llmDecomposeGoal(goalTitle, enrichedDesc, null, userId);
+
+          let milestonesSaved = [];
+          if (decomposition?.milestones) {
+            for (let i = 0; i < decomposition.milestones.length; i++) {
+              const m = decomposition.milestones[i];
+              const saved = await createGoalMilestone(goalId, userId, {
+                title: m.title,
+                description: m.description || "",
+                orderIndex: i,
+                targetDate: m.targetWeek
+                  ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
+                  : null,
+                tasks: m.tasks || [],
+              });
+              if (saved) milestonesSaved.push(saved);
+            }
+          }
+
+          // Build response
+          let reply = `Got it! I've refined your goal "${goalTitle}" with your input.\n`;
+          if (milestonesSaved.length > 0) {
+            reply += `\nBroken down into ${milestonesSaved.length} milestones:\n`;
+            for (const m of milestonesSaved.slice(0, 6)) {
+              reply += `  ${m.order_index + 1}. ${m.title}\n`;
+            }
+          }
+          if (decomposition?.dailyHabitSuggestion) {
+            reply += `\nDaily habit: ${decomposition.dailyHabitSuggestion}`;
+          }
+          reply += `\n\nI'll start weaving daily tasks from this goal into your morning plan.`;
+
+          await sendWhatsAppMessage({ to: from, text: reply });
+          await logAgentMessage(userId, "goal_refinement_complete", reply, [], { goalId });
+          res.setHeader("Content-Type", "text/xml");
+          return res.status(200).send(twimlMessage(""));
+        }
+      } catch (err) {
+        console.error("goal refinement intercept failed (continuing)", err.message);
       }
     }
 
@@ -656,7 +735,7 @@ export default async function handler(req, res) {
         }
 
       } else if (action.intent === "create_long_term_goal") {
-        // Check active goal count (cap at 5)
+        // Check active goal count (cap at 5, excluding drafting)
         const existingGoals = await listActiveLongTermGoals(userId);
         if (existingGoals.length >= 5) {
           actionsTaken.push({
@@ -664,8 +743,9 @@ export default async function handler(req, res) {
             message: `You have ${existingGoals.length} active long-term goals. Consider pausing or archiving one before adding another. Active goals: ${existingGoals.map((g) => g.title).join(", ")}`,
           });
         } else {
+          const goalTitle = action.longTermGoalTitle || action.taskTitle || rawText;
           const goalData = await createLongTermGoal(userId, {
-            title: action.longTermGoalTitle || action.taskTitle || rawText,
+            title: goalTitle,
             description: action.longTermGoalDescription || "",
             scope: action.longTermGoalScope || "yearly",
             targetDate: action.longTermGoalTargetDate || null,
@@ -675,7 +755,44 @@ export default async function handler(req, res) {
           if (goalData?.id) {
             await logParsedAction({ captureId, userId, actionType: "create_long_term_goal", actionPayload: { title: goalData.title, scope: goalData.scope }, targetTaskId: goalData.id, result: "long_term_goal_created", confidence: parsedResult.confidence });
 
-            // Decompose into milestones via LLM
+            // Start goal refinement conversation instead of immediate decomposition
+            // Store drafting state in core memory
+            await upsertCoreMemory(userId, "drafting_goal_id", goalData.id);
+            await upsertCoreMemory(userId, "drafting_goal_title", goalTitle);
+
+            // Set goal to drafting status
+            await updateLongTermGoal(goalData.id, { status: "drafting" });
+
+            // Generate clarifying questions
+            let memoryContext = "";
+            try {
+              const memories = await getCoreMemory(userId);
+              const relevant = memories.filter((m) => !/^drafting_goal/.test(m.key));
+              if (relevant.length > 0) {
+                memoryContext = relevant.map((m) => `- ${m.key}: ${m.value}`).join("\n");
+              }
+            } catch { /* ignore */ }
+
+            const questions = await llmGoalRefinement(goalTitle, memoryContext);
+
+            if (questions) {
+              // Schedule a timeout pulse: if user doesn't reply in 30 min, auto-decompose
+              const fireAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+              await createPulse(userId, fireAt, JSON.stringify({ type: "goal_refinement_timeout", goalId: goalData.id, goalTitle }), "goal_refinement_timeout");
+
+              const reply = `Great goal! Before I break this down, a few quick questions:\n\n${questions}\n\nJust reply with your answers and I'll build a personalized plan.`;
+              await sendWhatsAppMessage({ to: from, text: reply });
+              await logAgentMessage(userId, "goal_refinement_ask", reply, [], { goalId: goalData.id });
+              // Don't add to actionsTaken — we already sent the reply directly
+              res.setHeader("Content-Type", "text/xml");
+              return res.status(200).send(twimlMessage(""));
+            }
+
+            // Fallback: if LLM refinement fails, decompose immediately (old behavior)
+            await deleteCoreMemory(userId, "drafting_goal_id");
+            await deleteCoreMemory(userId, "drafting_goal_title");
+            await updateLongTermGoal(goalData.id, { status: "active" });
+
             const decomposition = await llmDecomposeGoal(
               goalData.title,
               goalData.description,
@@ -694,6 +811,7 @@ export default async function handler(req, res) {
                   targetDate: m.targetWeek
                     ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
                     : null,
+                  tasks: m.tasks || [],
                 });
                 if (saved) milestonesSaved.push(saved);
               }

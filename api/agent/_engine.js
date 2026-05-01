@@ -924,6 +924,17 @@ export async function recomputeDailyPlan({
 }) {
   const targetDate = asDate(date) || new Date();
   const dateKey = toDateKey(targetDate);
+
+  // Generate goal-derived tasks FIRST so they're included in scoring + optimizer
+  let goalTasks = [];
+  try {
+    const goalResult = await generateGoalDailyTasks({ userId, date: targetDate });
+    goalTasks = goalResult.generated || goalResult.existing || [];
+  } catch (e) {
+    console.error("generateGoalDailyTasks in recomputeDailyPlan failed", e.message);
+  }
+
+  // Fetch open tasks (now includes any newly-created goal tasks)
   const openTasks = await listOpenTasks(userId);
   const tasks = openTasks.filter((task) => !task.done && task.status !== "completed");
 
@@ -1077,15 +1088,6 @@ export async function recomputeDailyPlan({
     });
   } catch (err) {
     console.error("buildOptimizedSchedule failed, proceeding without schedule:", err.message);
-  }
-
-  // Generate goal-derived tasks for today (non-blocking — if it fails, daily plan still works)
-  let goalTasks = [];
-  try {
-    const goalResult = await generateGoalDailyTasks({ userId, date: targetDate });
-    goalTasks = goalResult.generated || goalResult.existing || [];
-  } catch (e) {
-    console.error("generateGoalDailyTasks in recomputeDailyPlan failed", e.message);
   }
 
   return {
@@ -1504,6 +1506,7 @@ async function ensureGoalsDecomposed(userId) {
         targetDate: m.targetWeek
           ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
           : null,
+        tasks: m.tasks || [],
       });
     }
   }
@@ -1569,18 +1572,24 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
     const currentMilestone = milestones.find((m) => m.status === "pending" || m.status === "in_progress");
     if (!currentMilestone) continue;
 
-    // Build the task title with goal context
-    const taskPrefix = routineHint
-      ? `[${goal.title}] `
-      : `[${goal.title}] `;
+    // Extract the daily task from milestone's stored tasks
+    const milestoneTasks = Array.isArray(currentMilestone.tasks) ? currentMilestone.tasks : [];
+    const dailyTask = milestoneTasks.find((t) => t.frequency === "daily")
+      || milestoneTasks.find((t) => /3x|2x/i.test(t.frequency || ""))
+      || milestoneTasks[0];
 
-    // Adaptive: reduce estimated time if completion rate is low
-    let estimatedMinutes = 20;
+    // Use the granular task title, not the milestone title
+    const taskTitle = dailyTask
+      ? `[${goal.title}] ${dailyTask.title}`
+      : `[${goal.title}] ${currentMilestone.title}`;
+
+    // Use LLM-estimated minutes with adaptive reduction
+    let estimatedMinutes = dailyTask?.estimatedMinutes || 20;
     if (completionRate < 0.5 && stats.total >= 2) {
-      estimatedMinutes = 10; // Shrink to tiny habit
+      estimatedMinutes = Math.max(5, Math.round(estimatedMinutes / 2));
     }
 
-    const taskTitle = `${taskPrefix}${currentMilestone.title}`;
+    const effortType = dailyTask?.effortType || "deep_work";
 
     const task = await createTaskStep(userId, {
       title: taskTitle,
@@ -1589,7 +1598,7 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
       estimatedMinutes,
       urgency: goal.priority === 1 ? 3 : 2,
       importance: goal.priority === 1 ? 4 : 3,
-      effortType: "deep_work",
+      effortType,
       source: "goal_planner",
       goalName: goal.title,
       longTermGoalId: goal.id,

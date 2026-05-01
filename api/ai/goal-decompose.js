@@ -62,6 +62,7 @@ export default async function handler(req, res) {
         targetDate: m.targetWeek
           ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
           : null,
+        tasks: m.tasks || [],
       });
       if (saved) milestones.push(saved);
     }

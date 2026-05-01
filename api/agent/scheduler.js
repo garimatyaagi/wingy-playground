@@ -23,11 +23,15 @@ import {
   detectBehaviorPatterns,
   generateNudge,
   recomputeDailyPlan,
+  computeDailyScorecard,
+  analyzeDay,
+  buildMorningBriefContext,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
 import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage, llmWeeklyGoalReview, llmDecomposeGoal } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 import { authenticateRequest } from "./_auth.js";
+import { computeEscalationLevel } from "./_proactive.js";
 
 function parseTimeToMinutes(value, fallback) {
   const source = String(value || fallback || "00:00");
@@ -62,6 +66,10 @@ function localTimeParts(date, timezone) {
     minuteOfDay: hour * 60 + minute,
     weekday,
   };
+}
+
+function withinWindow(minuteOfDay, targetMinutes, windowMinutes = 15) {
+  return minuteOfDay >= targetMinutes && minuteOfDay < targetMinutes + windowMinutes;
 }
 
 function shouldSend(profile, type, local, sentTypes) {
@@ -232,7 +240,15 @@ export default async function handler(req, res) {
           `[${gt.goalTitle || "Goal"}] ${gt.milestoneTitle || gt.text || ""}`
         );
       }
-      const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
+      // Build rich context for the enhanced morning brief
+      const briefContext = await buildMorningBriefContext({
+        userId: profile.userId,
+        date: now,
+        planState,
+        calendarEvents,
+        profile,
+      }).catch((err) => { console.error("briefContext failed", { error: err.message }); return null; });
+      const llmBody = await llmMorningBrief(planState, calendarEvents, profile, briefContext).catch(() => null);
       const body = llmBody || buildMorningBrief({
         planState,
         tone: profile.tone || "firm",
@@ -270,7 +286,10 @@ export default async function handler(req, res) {
         : [];
       const recentCtx = sentToday || [];
       const behavior = detectBehaviorPatterns(planState, recentCtx, local.dateKey);
-      const llmBody = await llmNudge(planState, "midday_nudge", profile, calEventsNudge, behavior).catch(() => null);
+      // Compute escalation level for top task
+      const topTask = (planState.topPriorities || []).find((t) => !t.done);
+      const escalation = topTask ? computeEscalationLevel(topTask, [], []) : null;
+      const llmBody = await llmNudge(planState, "midday_nudge", profile, calEventsNudge, behavior, escalation).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -295,7 +314,10 @@ export default async function handler(req, res) {
         : [];
       const recentCtxAfternoon = sentToday || [];
       const behaviorAfternoon = detectBehaviorPatterns(planState, recentCtxAfternoon, local.dateKey);
-      const llmBody = await llmNudge(planState, "afternoon_followup", profile, calEventsAfternoon, behaviorAfternoon).catch(() => null);
+      // Compute escalation for afternoon (more urgent)
+      const topTaskAfternoon = (planState.topPriorities || []).find((t) => !t.done);
+      const escalationAfternoon = topTaskAfternoon ? computeEscalationLevel(topTaskAfternoon, [], []) : null;
+      const llmBody = await llmNudge(planState, "afternoon_followup", profile, calEventsAfternoon, behaviorAfternoon, escalationAfternoon).catch(() => null);
       const nudge = await generateNudge({
         userId: profile.userId,
         tone: profile.tone || "firm",
@@ -340,6 +362,15 @@ export default async function handler(req, res) {
       });
       profileReport.actions.push({ type: "evening_checkin", sent });
       sentTypes.add("evening_checkin");
+
+      // Compute daily scorecard & analyze patterns after evening checkin
+      try {
+        const scorecard = await computeDailyScorecard(profile.userId, local.dateKey, planState);
+        const analysis = await analyzeDay(profile.userId, local.dateKey, planState);
+        profileReport.actions.push({ type: "scorecard", completionRate: scorecard.completionRate, streak: scorecard.streakDays, insights: analysis.insights?.length || 0 });
+      } catch (err) {
+        console.error("scorecard_computation_failed", { userId: profile.userId, error: err.message });
+      }
     }
 
     // ─── Persistent follow-ups for avoided tasks ───

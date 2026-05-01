@@ -103,9 +103,12 @@ export default async function handler(req, res) {
   const authHeader = String(req.headers.authorization || "").trim();
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
-  const isCronAuth = cronSecret && bearerToken &&
-    bearerToken.length === cronSecret.length &&
-    crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(cronSecret));
+  const queryToken = String(req.query?.token || "").trim();
+  const tokenCandidate = bearerToken || queryToken;
+
+  const isCronAuth = cronSecret && tokenCandidate &&
+    tokenCandidate.length === cronSecret.length &&
+    crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
 
   let isUserAuth = false;
   if (!isCronAuth) {

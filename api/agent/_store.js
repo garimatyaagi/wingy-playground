@@ -700,7 +700,7 @@ export async function listParsedActions(userId, limit = 20) {
   return data || [];
 }
 
-export async function logTaskEvent(taskId, eventType, metadata = {}) {
+export async function logTaskEvent(taskId, eventType, metadata = {}, userId = null) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !taskId || !eventType) return;
   const payload = {
@@ -708,6 +708,7 @@ export async function logTaskEvent(taskId, eventType, metadata = {}) {
     event_type: eventType,
     metadata,
     created_at: new Date().toISOString(),
+    ...(userId ? { user_id: userId } : {}),
   };
   const first = await supabase.from("task_events").insert(payload);
   if (!first.error || isMissingTable(first.error)) return;
@@ -881,6 +882,7 @@ export async function saveTaskOccurrence({
   skipped,
   completedAt,
   rescheduledTo,
+  userId,
 }) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !parentTaskId || !date) return null;
@@ -893,6 +895,7 @@ export async function saveTaskOccurrence({
     completed_at: completedAt || null,
     rescheduled_to: rescheduledTo || null,
     updated_at: new Date().toISOString(),
+    ...(userId ? { user_id: userId } : {}),
   };
   const upsert = await supabase
     .from("task_occurrences")
@@ -906,14 +909,15 @@ export async function saveTaskOccurrence({
   return null;
 }
 
-export async function listTaskOccurrences(parentTaskId) {
+export async function listTaskOccurrences(parentTaskId, userId = null) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !parentTaskId) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from("task_occurrences")
     .select("id, parent_task_id, date, status, actual_minutes, skipped, completed_at")
-    .eq("parent_task_id", parentTaskId)
-    .order("date", { ascending: false });
+    .eq("parent_task_id", parentTaskId);
+  if (userId) query = query.eq("user_id", userId);
+  const { data, error } = await query.order("date", { ascending: false });
   if (error) {
     if (!isMissingTable(error)) console.error("listTaskOccurrences failed", { error, parentTaskId });
     return [];
@@ -1055,6 +1059,7 @@ export async function fetchAgentDebug(userId, limit = 30) {
     supabase
       .from("task_events")
       .select("id, task_id, event_type, metadata, created_at")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit),
     supabase
@@ -1095,14 +1100,16 @@ export async function fetchOverdueTasks(userId) {
   return data || [];
 }
 
-export async function fetchTaskPostponeCount(taskId) {
+export async function fetchTaskPostponeCount(taskId, userId = null) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !taskId) return 0;
-  const { count, error } = await supabase
+  let query = supabase
     .from("task_events")
     .select("id", { count: "exact", head: true })
     .eq("task_id", taskId)
     .eq("event_type", "rescheduled");
+  if (userId) query = query.eq("user_id", userId);
+  const { count, error } = await query;
   if (error) return 0;
   return count || 0;
 }
@@ -1479,14 +1486,15 @@ export async function createGoalMilestone(goalId, userId, payload) {
   return data;
 }
 
-export async function listMilestonesForGoal(goalId) {
+export async function listMilestonesForGoal(goalId, userId = null) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !goalId) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from("goal_milestones")
     .select("id, goal_id, title, description, target_date, status, order_index, tasks, created_at, completed_at")
-    .eq("goal_id", goalId)
-    .order("order_index", { ascending: true });
+    .eq("goal_id", goalId);
+  if (userId) query = query.eq("user_id", userId);
+  const { data, error } = await query.order("order_index", { ascending: true });
   if (error) {
     if (!isMissingTable(error)) console.error("listMilestonesForGoal failed", { error, goalId });
     return [];

@@ -65,7 +65,7 @@ export async function detectStallingGoals(userId) {
 
     if (isStalling7) {
       // Find the current milestone for suggestion
-      const milestones = await listMilestonesForGoal(goal.id);
+      const milestones = await listMilestonesForGoal(goal.id, userId);
       const currentMilestone = milestones.find((m) => m.status === "pending" || m.status === "in_progress");
       const suggestedTask = currentMilestone
         ? (Array.isArray(currentMilestone.tasks) ? currentMilestone.tasks[0] : null)
@@ -163,7 +163,7 @@ export async function generateProactiveSuggestions(userId, planState, goals = nu
   goalRates.sort((a, b) => a.rate - b.rate || (a.goal.priority || 3) - (b.goal.priority || 3));
 
   for (const { goal } of goalRates.slice(0, 3)) {
-    const milestones = await listMilestonesForGoal(goal.id);
+    const milestones = await listMilestonesForGoal(goal.id, userId);
     const currentMilestone = milestones.find((m) => m.status === "pending" || m.status === "in_progress");
     if (!currentMilestone) continue;
 

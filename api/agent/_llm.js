@@ -4,6 +4,7 @@ import {
   upsertCoreMemory,
   deleteCoreMemory,
   createPulse,
+  listActiveLongTermGoals,
 } from "./_store.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -36,6 +37,7 @@ const ActionItemSchema = {
         "ambiguous",
         "pause_bot",
         "resume_bot",
+        "create_long_term_goal",
       ],
     },
     taskTitle: { type: "string" },
@@ -57,6 +59,14 @@ const ActionItemSchema = {
     memoryAction: { type: "string" },
     pulseDelayMinutes: { type: "integer" },
     pulseContext: { type: "string" },
+    longTermGoalTitle: { type: "string" },
+    longTermGoalScope: { type: "string" },
+    longTermGoalTargetDate: { type: "string" },
+    longTermGoalDescription: { type: "string" },
+    totalEstimatedMinutes: { type: "integer" },
+    dailyAllocatedMinutes: { type: "integer" },
+    estimatedDays: { type: "integer" },
+    estimationReasoning: { type: "string" },
   },
   required: [
     "intent", "taskTitle", "dueDate", "estimatedMinutes", "urgency",
@@ -64,6 +74,8 @@ const ActionItemSchema = {
     "completionTarget", "rescheduleDays", "noteText", "goalTitle",
     "pauseDurationMinutes", "memoryKey", "memoryValue", "memoryAction",
     "pulseDelayMinutes", "pulseContext",
+    "longTermGoalTitle", "longTermGoalScope", "longTermGoalTargetDate", "longTermGoalDescription",
+    "totalEstimatedMinutes", "dailyAllocatedMinutes", "estimatedDays", "estimationReasoning",
   ],
 };
 
@@ -175,8 +187,17 @@ RULES:
 
 8. RESCHEDULE: "move X to tomorrow", "postpone X"
 9. CANCEL: "cancel X", "drop X", "never mind about X"
-10. NOTES: journal entries, reflections. GOALS: long-term aspirations.
+10. NOTES: journal entries, reflections. GOALS (short category): "goal" intent for simple category labels.
 11. BOT CONTROL: "pause bot" / "stop bot" → pause_bot. "resume bot" / "start bot" → resume_bot. Set pauseDurationMinutes (default 60).
+
+12. LONG-TERM GOALS → create_long_term_goal:
+   When user describes a goal with a timeline (year, quarter, months) or uses phrases like:
+   "By end of year...", "This year I want to...", "My goal for 2026...", "In the next 6 months...",
+   "Long term goal:", "yearly goal:", "quarterly goal:", "I want to achieve..."
+   Set longTermGoalTitle, longTermGoalDescription, longTermGoalScope (quarterly/yearly/custom),
+   and longTermGoalTargetDate (ISO date, end of period). All other fields use defaults (empty string / 0).
+   This is DIFFERENT from "goal" intent — "goal" is a category bucket, "create_long_term_goal" is a
+   time-bound aspiration that will be decomposed into milestones and daily tasks.
 
 "ambiguous" is ONLY for messages where you genuinely cannot determine ANY intent — like "ok", "hmm". NOT for actionable phrases.
 
@@ -184,12 +205,36 @@ For due dates: ISO format. For urgency/importance: 1-5. For effortType: deep_wor
 For goalName: Health, Learning & Growth, Life Admin, Career, General.
 If fields don't apply, use empty string or 0.
 
+## TIME ESTIMATION (per action fields)
+Estimate how long tasks REALLY take. Set totalEstimatedMinutes, dailyAllocatedMinutes, estimatedDays, and estimationReasoning.
+
+BOOKS: Recognize book titles. Average book is ~250 pages, read at ~30-40 pages/hour.
+- "Read Atomic Habits" → totalEstimatedMinutes: 270, dailyAllocatedMinutes: 45, estimatedDays: 6, estimationReasoning: "~250 pages at 40 pages/hr = 6.25 hrs. 45min/day = 6 sessions"
+- "Read Sapiens" → totalEstimatedMinutes: 480, dailyAllocatedMinutes: 60, estimatedDays: 8, estimationReasoning: "~450 pages, longer book. 60min/day = 8 sessions"
+
+PROJECTS (multi-day work): Estimate total scope, split into daily blocks of 60-90min.
+- "Build landing page" → totalEstimatedMinutes: 480, dailyAllocatedMinutes: 90, estimatedDays: 6, estimationReasoning: "Design + code + copy + deploy ~8hrs. 90min/day"
+- "Write blog post" → totalEstimatedMinutes: 180, dailyAllocatedMinutes: 60, estimatedDays: 3, estimationReasoning: "Research + draft + edit ~3hrs. 60min/day"
+
+SIMPLE TASKS (single session): totalEstimatedMinutes = estimatedMinutes, estimatedDays = 1, dailyAllocatedMinutes = estimatedMinutes.
+- "Call dentist" → totalEstimatedMinutes: 15, dailyAllocatedMinutes: 15, estimatedDays: 1, estimationReasoning: "Simple phone call"
+- "Send invoice" → totalEstimatedMinutes: 20, dailyAllocatedMinutes: 20, estimatedDays: 1, estimationReasoning: "Quick admin task"
+
+RECURRING TASKS: dailyAllocatedMinutes = per-session time. totalEstimatedMinutes: 0, estimatedDays: 0 (ongoing).
+- "Workout daily" → totalEstimatedMinutes: 0, dailyAllocatedMinutes: 45, estimatedDays: 0, estimationReasoning: "Ongoing habit, 45min per session"
+
+For estimatedMinutes (the field used for today's scheduling), ALWAYS use dailyAllocatedMinutes value.
+
 ## MEMORY (per action fields)
 You have persistent memory. On any action, you can also set memoryAction/memoryKey/memoryValue to manage memory:
 - memoryAction: "save", memoryKey: "morning_routine", memoryValue: "User runs at 6am" — store a fact
 - memoryAction: "delete", memoryKey: "old_key", memoryValue: "" — remove outdated fact
 Save important facts: preferences, habits, people mentioned, work patterns. Be selective.
 Set memoryAction to "" and memoryKey/memoryValue to "" when no memory change needed.
+
+## LONG-TERM GOAL FIELDS (per action)
+Set longTermGoalTitle, longTermGoalScope, longTermGoalTargetDate, longTermGoalDescription when intent is create_long_term_goal.
+Set all four to "" when not creating a long-term goal.
 
 ## FOLLOW-UP (per action fields)
 Set pulseDelayMinutes and pulseContext to schedule a follow-up message:
@@ -281,7 +326,11 @@ export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) 
   const taskBlock = topTasks
     .map((t, i) => {
       const postponed = Number(t.rescheduleCount || 0);
-      return `${i + 1}. ${t.title} (${t.estimatedMinutes || 30}m)${postponed >= 2 ? ` — postponed ${postponed}x` : ""}`;
+      const progress = t.multiDayProgress;
+      const timeLabel = progress?.isMultiDay
+        ? `${progress.todayAllocatedMinutes}m today — ${progress.progressLabel}`
+        : `${t.estimatedMinutes || 30}m`;
+      return `${i + 1}. ${t.title} (${timeLabel})${postponed >= 2 ? ` — postponed ${postponed}x` : ""}`;
     })
     .join("\n");
 
@@ -295,6 +344,10 @@ export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) 
 
   const recurringBlock = recurring.map((t) => `- ${t.title}`).join("\n");
 
+  const goalTaskBlock = (tasks.goalTaskContext || [])
+    .map((g) => `- ${g}`)
+    .join("\n");
+
   const memoryContext = await buildMemoryContext(profile?.userId);
 
   const prompt = `Write a concise, personal morning briefing for today (${today}). Tone: ${tone}.
@@ -302,13 +355,15 @@ ${memoryContext}
 Today's priorities:
 ${taskBlock || "No tasks scheduled."}
 
-${overdue.length > 0 ? `Overdue tasks:\n${overdueBlock}\n` : ""}${calendarEvents.length > 0 ? `Calendar events:\n${calBlock}\n` : ""}${recurring.length > 0 ? `Recurring habits:\n${recurringBlock}\n` : ""}
+${overdue.length > 0 ? `Overdue tasks:\n${overdueBlock}\n` : ""}${calendarEvents.length > 0 ? `Calendar events:\n${calBlock}\n` : ""}${recurring.length > 0 ? `Recurring habits:\n${recurringBlock}\n` : ""}${goalTaskBlock ? `Long-term goal tasks for today:\n${goalTaskBlock}\n` : ""}
 Rules:
 - Keep it under 200 words
 - Start with a greeting appropriate to the tone
 - Mention total focus time needed
 - If there are overdue tasks, call them out (be direct if tone is ruthless)
 - If there are calendar events, weave them into the schedule
+- If there are long-term goal tasks, mention them with context (e.g. "Marathon training: 25-min run — Week 3 of your plan")
+- For multi-day tasks (shown as "session X/Y"), mention progress naturally (e.g., "You're on session 3 of 6")
 - End with one motivating line appropriate to the tone
 - Do NOT use markdown. Plain text only with line breaks.`;
 
@@ -339,7 +394,9 @@ export async function llmEveningCheckin(tasks, completedToday = [], profile = {}
   const taskBlock = topTasks
     .map((t, i) => {
       const done = completedToday.some((c) => c.id === t.id);
-      return `${i + 1}. ${t.title} — ${done ? "DONE" : "NOT DONE"}`;
+      const progress = t.multiDayProgress;
+      const progressSuffix = progress?.isMultiDay ? ` (${progress.progressLabel})` : "";
+      return `${i + 1}. ${t.title}${progressSuffix} — ${done ? "DONE" : "NOT DONE"}`;
     })
     .join("\n");
 
@@ -411,17 +468,23 @@ export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}
     if (lines.length > 0) behaviorBlock = `\nBehavioral patterns detected:\n${lines.join("\n")}\n`;
   }
 
+  const progress = target.multiDayProgress;
+  const progressLine = progress?.isMultiDay
+    ? `\nMulti-day progress: ${progress.progressLabel}, ${progress.remainingMinutes}m total remaining`
+    : "";
+  const effectiveMinutes = progress?.isMultiDay ? progress.todayAllocatedMinutes : (target.estimatedMinutes || 30);
+
   const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${tone}.
 
-Top pending task: "${target.title}" (${target.estimatedMinutes || 30}m)
+Top pending task: "${target.title}" (${effectiveMinutes}m today)
 Times postponed: ${postponed}
-Total remaining tasks: ${top.length} (${totalLeft}m total)
+Total remaining tasks: ${top.length} (${totalLeft}m total)${progressLine}
 ${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}${behaviorBlock}
 Rules:
 - Focus on the #1 task
 - If postponed 2+ times, be more direct about it
 - Suggest a specific time block (e.g. "Start a 20-minute sprint")
-- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}
+- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}${progressLine ? "\n- Reference the multi-day progress naturally (e.g., 'session 3 of 6 today')" : ""}
 - ${timeOfDay === "afternoon" ? "Mention that end of day is approaching" : "Encourage starting now"}
 - Keep under 80 words
 - Plain text only`;
@@ -471,6 +534,189 @@ Rules:
     return (response.output_text || "").trim();
   } catch (err) {
     console.error("llmPulseMessage error:", err.message);
+    return null;
+  }
+}
+
+// ─── LLM Follow-up for avoided tasks ───
+
+// ─── LLM Goal Decomposition ───
+
+const GoalDecompositionSchema = {
+  name: "goal_decomposition",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      milestones: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            targetWeek: { type: "integer" },
+            tasks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  title: { type: "string" },
+                  frequency: { type: "string" },
+                  estimatedMinutes: { type: "integer" },
+                  effortType: { type: "string" },
+                },
+                required: ["title", "frequency", "estimatedMinutes", "effortType"],
+              },
+            },
+          },
+          required: ["title", "description", "targetWeek", "tasks"],
+        },
+      },
+      dailyHabitSuggestion: { type: "string" },
+      weeklyCheckpoint: { type: "string" },
+      suggestedPriority: { type: "integer" },
+    },
+    required: ["milestones", "dailyHabitSuggestion", "weeklyCheckpoint", "suggestedPriority"],
+  },
+};
+
+export async function llmDecomposeGoal(goalTitle, goalDescription, targetDate, userId = null) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const memoryContext = await buildMemoryContext(userId);
+  const today = new Date().toISOString().split("T")[0];
+  const targetStr = targetDate || "end of year";
+
+  // Fetch existing active goals to give context on workload
+  let existingGoalsBlock = "";
+  if (userId) {
+    try {
+      const existing = await listActiveLongTermGoals(userId);
+      if (existing.length > 0) {
+        existingGoalsBlock = "\nUser's existing active long-term goals:\n" +
+          existing.map((g) => `- ${g.title} (priority ${g.priority}, target: ${g.target_date || "none"})`).join("\n") +
+          `\nTotal active goals: ${existing.length}. Keep this workload in mind when sizing milestones.\n`;
+      }
+    } catch { /* ignore */ }
+  }
+
+  const prompt = `Break down this long-term goal into milestones and daily actionable tasks.
+
+Goal: "${goalTitle}"
+${goalDescription ? `Description: ${goalDescription}` : ""}
+Target date: ${targetStr}
+Today: ${today}
+${memoryContext}${existingGoalsBlock}
+Rules:
+1. Create 3-6 milestones, ordered chronologically. Each milestone should take 2-8 weeks.
+2. Each milestone should have 1-3 repeatable daily/weekly tasks that drive progress.
+3. Tasks should be TINY and specific — under 30 minutes each. The smaller the better.
+4. Use "frequency" to indicate how often: "daily", "3x/week", "2x/week", "weekly".
+5. "effortType" must be one of: deep_work, admin, health, call, errand, learning.
+6. "targetWeek" = week number from today when this milestone should be reached.
+7. "dailyHabitSuggestion" = an implementation intention anchored to an existing routine.
+   Use the user's known routines from memory if available. Format: "After [existing routine], [new habit]".
+8. "weeklyCheckpoint" = what to review each week to track progress.
+9. "suggestedPriority" = 1 (daily attention), 2 (2-3x/week), or 3 (weekly). Consider existing goals workload.
+10. Be realistic about pacing. Don't front-load everything into week 1.`;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: "You are an expert goal coach and habit designer. You specialize in breaking ambitious goals into tiny, achievable daily actions using behavioral science (implementation intentions, habit stacking, progressive overload). Be practical, not aspirational." },
+        { role: "user", content: prompt },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: GoalDecompositionSchema.name,
+          strict: GoalDecompositionSchema.strict,
+          schema: GoalDecompositionSchema.schema,
+        },
+      },
+    });
+
+    const cleaned = stripCodeFences((response.output_text || "").trim());
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("llmDecomposeGoal error:", err.message);
+    return null;
+  }
+}
+
+// ─── LLM Onboarding Answer Extraction ───
+
+export async function llmExtractOnboardingAnswer(rawText, questionTopic) {
+  if (!process.env.OPENAI_API_KEY) return rawText.trim();
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `You extract concise, useful facts from a user's answer about "${questionTopic}". Return a short summary (1-2 sentences max) that captures the key insight. Keep it factual and in third person (e.g., "User is a..." not "I am a..."). If the answer is unclear or empty, return "Not specified".`,
+        },
+        { role: "user", content: rawText },
+      ],
+    });
+    return (response.output_text || rawText).trim();
+  } catch (err) {
+    console.error("llmExtractOnboardingAnswer error:", err.message);
+    return rawText.trim();
+  }
+}
+
+// ─── LLM Weekly Goal Review ───
+
+export async function llmWeeklyGoalReview(goals, profile = {}) {
+  const tone = profile.tone || "firm";
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const memoryContext = await buildMemoryContext(profile?.userId);
+
+  const goalsBlock = goals
+    .map((g) => {
+      const milestoneStatus = (g.milestones || [])
+        .map((m) => `  - ${m.title}: ${m.status}${m.completed_at ? " (done)" : ""}`)
+        .join("\n");
+      const completionRate = g.completionRate !== undefined
+        ? `${Math.round(g.completionRate * 100)}% task completion this week`
+        : "no data yet";
+      return `Goal: "${g.title}" (priority ${g.priority}, target: ${g.target_date || "none"})
+  Status: ${completionRate}
+  Milestones:\n${milestoneStatus || "  (none yet)"}`;
+    })
+    .join("\n\n");
+
+  const prompt = `Write a weekly goal review message. Tone: ${tone}.
+${memoryContext}
+${goalsBlock || "No active long-term goals."}
+
+Rules:
+- Summarize progress on each goal in 1-2 lines
+- Celebrate milestones completed this week
+- Flag goals where completion rate is below 50% — suggest reducing scope or pausing
+- If a goal has no task completions, ask if it's still relevant
+- Suggest focus areas for the coming week
+- Keep under 250 words
+- Plain text only, no markdown`;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: "You are a personal goal coach doing a weekly check-in via WhatsApp. Be encouraging but honest about progress." },
+        { role: "user", content: prompt },
+      ],
+    });
+    return (response.output_text || "").trim();
+  } catch (err) {
+    console.error("llmWeeklyGoalReview error:", err.message);
     return null;
   }
 }

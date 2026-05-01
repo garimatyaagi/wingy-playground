@@ -6,8 +6,12 @@ import {
   fetchOverdueTasks,
   getPendingPulses,
   markPulseFired,
+  createPulse,
   getAgentProfileByUserId,
   getBotPauseStatus,
+  listActiveLongTermGoals,
+  listMilestonesForGoal,
+  countGoalTaskCompletions,
 } from "./_store.js";
 import {
   buildEveningCheckin,
@@ -17,7 +21,7 @@ import {
   recomputeDailyPlan,
 } from "./_engine.js";
 import { sendWhatsAppMessage } from "./_twilio.js";
-import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage } from "./_llm.js";
+import { llmMorningBrief, llmEveningCheckin, llmNudge, llmFollowUp, llmPulseMessage, llmWeeklyGoalReview } from "./_llm.js";
 import { getTodayEvents, getUpcomingEvents } from "./_calendar.js";
 import { authenticateRequest } from "./_auth.js";
 
@@ -75,6 +79,62 @@ function shouldSend(profile, type, local, sentTypes) {
   // Send if we're past the scheduled time but before the next message type's time
   // This catch-up window handles unreliable cron intervals (GitHub Actions can skip hours)
   return local.minuteOfDay >= targetMinutes && local.minuteOfDay < nextTarget;
+}
+
+// Convert a local time string (e.g. "12:30") in the user's timezone to a UTC Date for today.
+// Uses the timezone offset derived from formatting the current date.
+function localTimeToUtcToday(timeStr, timezone, now = new Date()) {
+  const [hours, minutes] = String(timeStr || "00:00").split(":").map(Number);
+  // Get current local date parts in user's timezone
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(now);
+  const pick = (type) => parts.find((p) => p.type === type)?.value || "";
+  const localDateStr = `${pick("year")}-${pick("month")}-${pick("day")}`;
+  // Create a date at the target local time by computing the offset
+  const utcNow = now.getTime();
+  const localNowStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).format(now);
+  // Parse "YYYY-MM-DD, HH:MM:SS"
+  const [datePart, timePart] = localNowStr.split(", ");
+  const localNowMs = new Date(`${datePart}T${timePart}Z`).getTime();
+  const offsetMs = utcNow - localNowMs;
+  // Target local time as if UTC, then apply offset
+  const targetLocalMs = new Date(`${localDateStr}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`).getTime();
+  return new Date(targetLocalMs + offsetMs);
+}
+
+// Schedule pulses for the remaining nudge types that won't fire during this cron run.
+// Called after the morning brief so midday/afternoon/evening nudges fire later via webhook.
+async function scheduleRemainingNudges(profile, sentTypes, now) {
+  const timezone = profile.timezone || "Asia/Kolkata";
+  const nudgeTypes = [
+    { type: "midday_nudge", time: profile.middayNudgeTime || "12:30" },
+    { type: "afternoon_followup", time: profile.afternoonFollowupTime || "16:00" },
+    { type: "evening_checkin", time: profile.eveningCheckinTime || "20:30" },
+  ];
+  const scheduled = [];
+  for (const nudge of nudgeTypes) {
+    if (sentTypes.has(nudge.type)) continue;
+    const fireAt = localTimeToUtcToday(nudge.time, timezone, now);
+    // Only schedule if fire_at is in the future
+    if (fireAt.getTime() <= now.getTime()) continue;
+    try {
+      await createPulse(profile.userId, fireAt.toISOString(), `scheduled_nudge:${nudge.type}`, nudge.type);
+      scheduled.push({ type: nudge.type, fireAt: fireAt.toISOString() });
+    } catch (err) {
+      console.error("scheduleRemainingNudges failed", { userId: profile.userId, type: nudge.type, error: err.message });
+    }
+  }
+  return scheduled;
 }
 
 async function sendAndLog({ userId, to, type, body, relatedTaskIds = [], metadata = {} }) {
@@ -144,13 +204,21 @@ export default async function handler(req, res) {
     };
 
     if (forceType === "morning_brief" || shouldSend(profile, "morning_brief", local, sentTypes)) {
-      const planState = await recomputeDailyPlan({
-        userId: profile.userId,
-        date: now,
-      });
       const calendarEvents = profile.google_refresh_token
         ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch((err) => { console.error("calendar_fetch_failed", { userId: profile.userId, err: err.message }); return []; })
         : [];
+      const planState = await recomputeDailyPlan({
+        userId: profile.userId,
+        date: now,
+        calendarEvents,
+        profile,
+      });
+      // Enrich planState with goal task context for morning brief
+      if (planState.goalTasks?.length > 0) {
+        planState.goalTaskContext = planState.goalTasks.map((gt) =>
+          `[${gt.goalTitle || "Goal"}] ${gt.milestoneTitle || gt.text || ""}`
+        );
+      }
       const llmBody = await llmMorningBrief(planState, calendarEvents, profile).catch(() => null);
       const body = llmBody || buildMorningBrief({
         planState,
@@ -169,6 +237,17 @@ export default async function handler(req, res) {
       });
       profileReport.actions.push({ type: "morning_brief", sent });
       sentTypes.add("morning_brief");
+
+      // On Vercel Hobby, cron runs once/day. Pre-schedule the remaining nudges as pulses
+      // so they fire when the user interacts via WhatsApp webhook.
+      try {
+        const scheduledPulses = await scheduleRemainingNudges(profile, sentTypes, now);
+        if (scheduledPulses.length > 0) {
+          profileReport.actions.push({ type: "scheduled_pulses", pulses: scheduledPulses });
+        }
+      } catch (err) {
+        console.error("scheduleRemainingNudges error", { userId: profile.userId, error: err.message });
+      }
     }
 
     if (forceType === "midday_nudge" || shouldSend(profile, "midday_nudge", local, sentTypes)) {
@@ -284,6 +363,48 @@ export default async function handler(req, res) {
           });
           profileReport.actions.push({ type: "followup", sent, taskId: avoidedTask.id });
         }
+      }
+    }
+
+    // ─── Weekly Goal Review ───
+    const reviewDay = (profile.weekly_review_day || profile.weeklyReviewDay || "sun").toLowerCase();
+    const reviewTime = parseTimeToMinutes(profile.weekly_review_time || profile.weeklyReviewTime, "19:00");
+    if (
+      profile.whatsAppNumber &&
+      local.weekday === reviewDay &&
+      withinWindow(local.minuteOfDay, reviewTime, 22) &&
+      !sentTypes.has("weekly_goal_review")
+    ) {
+      try {
+        const goals = await listActiveLongTermGoals(profile.userId);
+        if (goals.length > 0) {
+          // Enrich each goal with milestones and completion rate
+          const enrichedGoals = [];
+          for (const g of goals) {
+            const milestones = await listMilestonesForGoal(g.id);
+            const stats = await countGoalTaskCompletions(profile.userId, g.id, 7);
+            enrichedGoals.push({
+              ...g,
+              milestones,
+              completionRate: stats.total > 0 ? stats.completed / stats.total : null,
+            });
+          }
+          const llmBody = await llmWeeklyGoalReview(enrichedGoals, profile).catch(() => null);
+          if (llmBody) {
+            const sent = await sendAndLog({
+              userId: profile.userId,
+              to: profile.whatsAppNumber,
+              type: "weekly_goal_review",
+              body: llmBody,
+              relatedTaskIds: [],
+              metadata: { reason: "scheduled_weekly_goal_review", goalCount: goals.length },
+            });
+            profileReport.actions.push({ type: "weekly_goal_review", sent });
+            sentTypes.add("weekly_goal_review");
+          }
+        }
+      } catch (err) {
+        console.error("weekly_goal_review failed", { userId: profile.userId, err: err.message });
       }
     }
 

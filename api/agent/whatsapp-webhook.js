@@ -24,14 +24,23 @@ import {
   updateMessageCaptureBatch,
   getOrCreateSessionId,
   updateMessageCaptureMedia,
+  createLongTermGoal,
+  createGoalMilestone,
+  listActiveLongTermGoals,
+  getPendingPulsesForUser,
+  markPulseFired,
 } from "./_store.js";
 import {
   buildMessageContext,
+  buildEveningCheckin,
   buildRichResponse,
+  generateNudge,
   parseEveningResponse,
   parseMessageIntentWithLLM,
+  recomputeDailyPlan,
   resolveTaskMatch,
 } from "./_engine.js";
+import { llmNudge, llmEveningCheckin, llmMorningBrief } from "./_llm.js";
 import {
   bodyToForm,
   twimlMessage,
@@ -39,7 +48,9 @@ import {
   sendWhatsAppMessage,
 } from "./_twilio.js";
 import { getUpcomingEvents } from "./_calendar.js";
+import { llmDecomposeGoal } from "./_llm.js";
 import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
+import { handleOnboardingChat } from "./_onboarding-chat.js";
 
 function formatErrorReply() {
   return "I had trouble processing that. Please resend in one line, e.g. 'Finish pitch deck by Friday'.";
@@ -61,6 +72,69 @@ async function fetchCalendarContext(userId) {
     return await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 4);
   } catch {
     return [];
+  }
+}
+
+// Fire any pending scheduled nudge pulses for this user.
+// Called after processing the user's message so nudges piggyback on user activity.
+async function firePendingNudgePulses(userId, whatsAppNumber) {
+  if (!userId || !whatsAppNumber) return;
+  try {
+    const pendingPulses = await getPendingPulsesForUser(userId);
+    if (pendingPulses.length === 0) return;
+
+    const profile = await getAgentProfileByUserId(userId);
+    if (!profile) return;
+
+    const { getUpcomingEvents } = await import("./_calendar.js");
+
+    for (const pulse of pendingPulses) {
+      const context = pulse.context || "";
+      const pulseType = pulse.pulse_type || "";
+
+      // Handle scheduled nudge pulses (created by morning scheduler)
+      if (context.startsWith("scheduled_nudge:")) {
+        const messageType = context.replace("scheduled_nudge:", "");
+        try {
+          const calendarEvents = profile.google_refresh_token
+            ? await getUpcomingEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata", 3).catch(() => [])
+            : [];
+          const planState = await recomputeDailyPlan({ userId, date: new Date(), calendarEvents, profile });
+
+          let body = null;
+          if (messageType === "midday_nudge" || messageType === "afternoon_followup") {
+            body = await llmNudge(planState, messageType, profile, calendarEvents).catch(() => null);
+            if (!body) {
+              const nudge = await generateNudge({ userId, tone: profile.tone || "firm", now: new Date() });
+              body = nudge.body;
+            }
+          } else if (messageType === "evening_checkin") {
+            const completedToday = (planState.scoredTasks || []).filter(
+              (t) => t.done && t.completedAt && t.completedAt.startsWith(new Date().toISOString().slice(0, 10))
+            );
+            body = await llmEveningCheckin(planState, completedToday, profile, calendarEvents).catch(() => null);
+            if (!body) body = buildEveningCheckin({ planState });
+          }
+
+          if (body) {
+            await sendWhatsAppMessage({ to: whatsAppNumber, text: body });
+            await logAgentMessage({
+              userId,
+              type: messageType,
+              body,
+              relatedTaskIds: planState.topPriorities.map((t) => t.id).slice(0, 5),
+              metadata: { reason: `pulse_fired:${messageType}`, pulseId: pulse.id },
+            });
+          }
+        } catch (err) {
+          console.error("firePendingNudgePulses generate failed", { userId, messageType, error: err.message });
+        }
+      }
+
+      await markPulseFired(pulse.id);
+    }
+  } catch (err) {
+    console.error("firePendingNudgePulses failed", { userId, error: err.message });
   }
 }
 
@@ -112,6 +186,18 @@ export default async function handler(req, res) {
     }
 
     userId = inbound.userId;
+
+    // ─── Onboarding Conversation Intercept ───
+    if (rawText.trim()) {
+      try {
+        const onboardProfile = await getAgentProfileByUserId(userId);
+        if (onboardProfile && !onboardProfile.onboardingCompleted && onboardProfile.onboardingStep > 0) {
+          return handleOnboardingChat(userId, rawText, onboardProfile, res);
+        }
+      } catch (err) {
+        console.error("onboarding intercept check failed (continuing)", err.message);
+      }
+    }
 
     // ─── Voice Message Transcription ───
     const numMedia = parseInt(form.NumMedia || form.numMedia || "0", 10);
@@ -569,6 +655,61 @@ export default async function handler(req, res) {
           actionsTaken.push({ type: "error", message: "I could not save that goal yet. Please try a shorter goal title." });
         }
 
+      } else if (action.intent === "create_long_term_goal") {
+        // Check active goal count (cap at 5)
+        const existingGoals = await listActiveLongTermGoals(userId);
+        if (existingGoals.length >= 5) {
+          actionsTaken.push({
+            type: "long_term_goal_limit",
+            message: `You have ${existingGoals.length} active long-term goals. Consider pausing or archiving one before adding another. Active goals: ${existingGoals.map((g) => g.title).join(", ")}`,
+          });
+        } else {
+          const goalData = await createLongTermGoal(userId, {
+            title: action.longTermGoalTitle || action.taskTitle || rawText,
+            description: action.longTermGoalDescription || "",
+            scope: action.longTermGoalScope || "yearly",
+            targetDate: action.longTermGoalTargetDate || null,
+            priority: existingGoals.filter((g) => g.priority === 1).length >= 2 ? 2 : (existingGoals.length === 0 ? 1 : 2),
+          });
+
+          if (goalData?.id) {
+            await logParsedAction({ captureId, userId, actionType: "create_long_term_goal", actionPayload: { title: goalData.title, scope: goalData.scope }, targetTaskId: goalData.id, result: "long_term_goal_created", confidence: parsedResult.confidence });
+
+            // Decompose into milestones via LLM
+            const decomposition = await llmDecomposeGoal(
+              goalData.title,
+              goalData.description,
+              goalData.target_date,
+              userId
+            );
+
+            let milestonesSaved = [];
+            if (decomposition?.milestones) {
+              for (let i = 0; i < decomposition.milestones.length; i++) {
+                const m = decomposition.milestones[i];
+                const saved = await createGoalMilestone(goalData.id, userId, {
+                  title: m.title,
+                  description: m.description || "",
+                  orderIndex: i,
+                  targetDate: m.targetWeek
+                    ? new Date(Date.now() + m.targetWeek * 7 * 86400000).toISOString().split("T")[0]
+                    : null,
+                });
+                if (saved) milestonesSaved.push(saved);
+              }
+            }
+
+            actionsTaken.push({
+              type: "long_term_goal_created",
+              goal: goalData,
+              milestones: milestonesSaved,
+              decomposition,
+            });
+          } else {
+            actionsTaken.push({ type: "error", message: "Could not save that long-term goal. Please try again." });
+          }
+        }
+
       } else if (action.intent === "note" || action.intent === "informational_update") {
         await saveAgentNote({ userId, text: action.noteText || rawText, rawText });
         const noteResult = action.intent === "informational_update" ? "update_noted" : "note_saved";
@@ -779,6 +920,14 @@ export default async function handler(req, res) {
       clarificationRequested,
       result,
     });
+
+    // Fire any pending scheduled nudges (midday/afternoon/evening) for this user.
+    // These are created by the morning cron since Vercel Hobby only runs cron once/day.
+    try {
+      await firePendingNudgePulses(userId, profile?.whatsAppNumber || inbound?.profile?.whatsAppNumber);
+    } catch (err) {
+      console.error("pulse firing failed", { userId, error: err.message });
+    }
 
     if (lockAcquired) await releaseMessageLock(userId).catch(() => {});
     if (batchId) await markBatchProcessed(batchId).catch(() => {});

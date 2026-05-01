@@ -14,6 +14,7 @@ import TodaySurface from "./components/TodaySurface";
 import InboxSurface from "./components/InboxSurface";
 import GoalsSurface from "./components/GoalsSurface";
 import AgentSettingsSurface from "./components/AgentSettingsSurface";
+import Onboarding from "./components/Onboarding";
 import useRealtimeSync from "./hooks/useRealtimeSync";
 import {
   buildAccountabilityFeed,
@@ -391,6 +392,7 @@ export default function App() {
   const [eveningSubmitting, setEveningSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState("");
+  const [onboardingDone, setOnboardingDone] = useState(null);
   const [toast, setToast] = useState(null);
   const [newGoalTitle, setNewGoalTitle] = useState("");
   const [activeSurface, setActiveSurface] = useState("today");
@@ -625,6 +627,25 @@ export default function App() {
       cancelled = true;
     };
   }, [user?.id, supabase, refreshKey]);
+
+  // Auto-decompose goals that have 0 tasks (once per session per goal)
+  const decomposedGoalIds = useState(() => new Set())[0];
+  useEffect(() => {
+    if (!user?.id || loading) return;
+    const bareGoals = goals.filter(
+      (g) =>
+        g.status !== "archived" &&
+        (g.tasks || []).length === 0 &&
+        !decomposedGoalIds.has(g.id) &&
+        !["inbox / unassigned", "general", "inbox", "unassigned"].includes(
+          (g.title || "").toLowerCase().trim()
+        )
+    );
+    for (const g of bareGoals) {
+      decomposedGoalIds.add(g.id);
+      decomposeGoalInBackground(g.title).catch(() => {});
+    }
+  }, [goals, user?.id, loading]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1119,6 +1140,25 @@ export default function App() {
     if (fallback.error) throw fallback.error;
   }
 
+  async function decomposeGoalInBackground(title) {
+    const token = await getToken().catch(() => null);
+    if (!token) return;
+    const base = import.meta.env.VITE_API_BASE_URL?.trim()?.replace(/\/+$/, "") || "";
+    const endpoints = [];
+    if (base) endpoints.push(`${base}/api/ai/goal-decompose`);
+    endpoints.push("/api/ai/goal-decompose");
+    for (const endpoint of endpoints) {
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ title, scope: "yearly" }),
+        });
+        if (resp.ok) return await resp.json();
+      } catch { /* try next endpoint */ }
+    }
+  }
+
   async function createGoal(titleInput) {
     const title = String(titleInput || "").trim();
     if (!title) return null;
@@ -1193,6 +1233,12 @@ export default function App() {
         },
         ...prev,
       ]);
+
+      // Also create in long_term_goals + decompose into milestones (non-blocking)
+      decomposeGoalInBackground(title).catch((err) =>
+        console.warn("Goal decomposition failed (non-blocking):", err.message)
+      );
+
       return data.id;
     } catch (error) {
       console.error("Create goal failed:", { error, title });
@@ -2466,7 +2512,11 @@ export default function App() {
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch(`/api/agent/settings?userId=${encodeURIComponent(user.id)}`, { headers });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.profile) return;
+      if (!response.ok || !data?.profile) {
+        // No profile yet = new user, needs onboarding
+        setOnboardingDone(false);
+        return;
+      }
       setAgentSettings((prev) => ({
         ...prev,
         ...data.profile,
@@ -2474,8 +2524,10 @@ export default function App() {
       }));
       if (data.agentWhatsAppNumber) setAgentWhatsAppFrom(data.agentWhatsAppNumber);
       if (data.profile?.tone) setAgentTone(data.profile.tone);
+      setOnboardingDone(data.profile.onboardingCompleted ?? false);
     } catch (error) {
       console.error("loadAgentSettingsFromServer failed", { error });
+      setOnboardingDone(false);
     }
   }
 
@@ -2881,6 +2933,24 @@ export default function App() {
       </SignedOut>
 
       <SignedIn>
+        {onboardingDone === null ? (
+          <main className="execMain">
+            <section className="cardShell loadingCard">
+              <p className="subtle">Loading...</p>
+            </section>
+          </main>
+        ) : onboardingDone === false ? (
+          <Onboarding
+            userId={user?.id}
+            getToken={getToken}
+            agentWhatsAppFrom={agentWhatsAppFrom}
+            onComplete={() => {
+              setOnboardingDone(true);
+              loadAgentSettingsFromServer();
+            }}
+          />
+        ) : (
+        <>
         <main className="execMain">
           <ExecutionHeader
             workspaceName={workspaceName || `${userDisplayName}'s workspace`}
@@ -2889,30 +2959,7 @@ export default function App() {
             userSlot={<UserButton />}
           />
 
-          <nav className="appSurfaceTabs">
-            {[
-              { id: "today", label: "Today" },
-              { id: "inbox", label: "Inbox" },
-              { id: "goals", label: "Goals" },
-              { id: "settings", label: "Settings" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={activeSurface === tab.id ? "ghostButton mini active" : "ghostButton mini"}
-                onClick={() => {
-                  setActiveSurface(tab.id);
-                  if (tab.id === "today" || tab.id === "inbox") {
-                    refreshWorkspace();
-                    if (tab.id === "inbox") loadServerCaptures();
-                  }
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
-            {activeSprint ? <p className="sprintBadge">Sprint running: {activeSprint.title} · {sprintLabel}</p> : null}
-          </nav>
+          {activeSprint ? <p className="sprintBadge">Sprint running: {activeSprint.title} · {sprintLabel}</p> : null}
 
           {dataError ? <div className="errorBanner">{dataError}</div> : null}
 
@@ -3063,9 +3110,61 @@ export default function App() {
           saving={taskDrawer.saving}
         />
 
+        <nav className="bottomNav">
+          <button
+            type="button"
+            className={activeSurface === "today" ? "bottomNavTab active" : "bottomNavTab"}
+            onClick={() => { setActiveSurface("today"); refreshWorkspace(); }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+              <line x1="9" y1="2" x2="9" y2="6" />
+              <line x1="15" y1="2" x2="15" y2="6" />
+            </svg>
+            <span>Today</span>
+          </button>
+          <button
+            type="button"
+            className={activeSurface === "inbox" ? "bottomNavTab active" : "bottomNavTab"}
+            onClick={() => { setActiveSurface("inbox"); refreshWorkspace(); loadServerCaptures(); }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 12h-6l-2 3H10l-2-3H2" />
+              <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
+            </svg>
+            <span>Inbox</span>
+          </button>
+          <button
+            type="button"
+            className={activeSurface === "goals" ? "bottomNavTab active" : "bottomNavTab"}
+            onClick={() => setActiveSurface("goals")}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="6" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+            <span>Goals</span>
+          </button>
+          <button
+            type="button"
+            className={activeSurface === "settings" ? "bottomNavTab active" : "bottomNavTab"}
+            onClick={() => setActiveSurface("settings")}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+            </svg>
+            <span>Settings</span>
+          </button>
+        </nav>
+
         {toast ? (
           <div className={toast.kind === "error" ? "toast toastError" : "toast"}>{toast.message}</div>
         ) : null}
+        </>
+        )}
       </SignedIn>
     </div>
   );

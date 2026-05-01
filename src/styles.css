@@ -1636,8 +1636,11 @@ select {
   gap: 8px;
 }
 
-.branchDrilldownIcon {
-  font-size: 24px;
+.branchDrilldownDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .branchPicker {
@@ -1697,10 +1700,6 @@ select {
   border-radius: var(--radius-xl);
 }
 
-.treeNodeRoot .treeNodeIcon {
-  font-size: 20px;
-}
-
 .treeNodeRoot .treeNodeLabel {
   font-size: 16px;
   font-weight: 700;
@@ -1738,10 +1737,12 @@ select {
 }
 
 /* Node content */
-.treeNodeIcon {
-  font-size: 16px;
+.treeNodeDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
-  line-height: 1;
+  background: var(--branch-color, var(--accent));
 }
 
 .treeNodeLabel {

@@ -10,7 +10,7 @@ function BranchNode({ branch, stats, expanded, onToggle, goals, onSelectGoal }) 
         style={{ "--branch-color": branch.color }}
         onClick={onToggle}
       >
-        <span className="treeNodeIcon">{branch.icon}</span>
+        <span className="treeNodeDot" />
         <span className="treeNodeLabel">{branch.label}</span>
         <span className="treeNodeMeta">
           {stats.goalCount} goal{stats.goalCount !== 1 ? "s" : ""}
@@ -57,7 +57,6 @@ export default function GoalBranchesView({ goals, onSelectBranch, onSelectGoal }
       {/* Root node */}
       <div className="treeRoot">
         <div className="treeNode treeNodeRoot">
-          <span className="treeNodeIcon">🌳</span>
           <span className="treeNodeLabel">Your Goals</span>
         </div>
       </div>

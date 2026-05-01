@@ -70,7 +70,8 @@ function WhatsAppDemo() {
         <>
           <strong>Nudge</strong>
           <br />
-          You have a 1:1 with Neha at 2 PM. Want to review the PRD before that?
+          You have a 1:1 with Neha at 2 PM. Want to review the PRD before
+          that?
         </>
       ),
       time: "12:30 PM",
@@ -84,6 +85,7 @@ function WhatsAppDemo() {
 
   return (
     <div className="phoneMockup">
+      <div className="phoneNotch" />
       <div className="phoneScreen">
         <div className="waHeader">
           <div className="waAvatar">365</div>
@@ -115,19 +117,35 @@ function WhatsAppDemo() {
 /* ─── Data ─── */
 const VALUE_PROPS = [
   {
-    num: "01",
     title: "Instant capture",
     desc: "Text any task in plain language. AI extracts deadlines and priorities automatically.",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+      </svg>
+    ),
   },
   {
-    num: "02",
     title: "Adaptive planning",
     desc: "Your daily plan adjusts to calendar gaps, energy patterns, and completion history.",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+        <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" />
+      </svg>
+    ),
   },
   {
-    num: "03",
     title: "Accountability loop",
     desc: "Morning briefs, midday nudges, and evening reflections. No app to open.",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </svg>
+    ),
   },
 ];
 
@@ -185,45 +203,81 @@ export default function Landing() {
 
       {/* ─── Hero ─── */}
       <section className="landingHero">
-        <motion.h1
-          className="heroHeadline"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.1, ease: EASE }}
-        >
-          Stop planning.
-          <br />
-          Start finishing.
-        </motion.h1>
+        <div className="heroOrb heroOrb1" />
+        <div className="heroOrb heroOrb2" />
+        <div className="heroNoise" />
 
-        <motion.p
-          className="heroSub"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
-        >
-          AI plans your day. WhatsApp keeps you accountable.
-        </motion.p>
+        <div className="heroContent">
+          <motion.div
+            className="heroBadge"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.6, delay: 0, ease: EASE }}
+          >
+            <span className="heroBadgeDot" />
+            AI-powered execution
+          </motion.div>
+
+          <motion.h1
+            className="heroHeadline"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.1, ease: EASE }}
+          >
+            Stop planning.
+            <br />
+            Start finishing.
+          </motion.h1>
+
+          <motion.p
+            className="heroSub"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.3, ease: EASE }}
+          >
+            365 Tasks turns scattered to-dos into a focused daily system.
+            <br />
+            AI plans your day, WhatsApp keeps you on track.
+          </motion.p>
+
+          <motion.div
+            className="heroCtas"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.5, ease: EASE }}
+          >
+            <a className="heroButton" href="/app">
+              Get started free
+              <span className="heroButtonArrow">→</span>
+            </a>
+            <a className="heroGhostButton" href="#demo">
+              See demo
+            </a>
+          </motion.div>
+        </div>
 
         <motion.div
-          className="heroCtas"
-          initial={{ opacity: 0, y: 20 }}
+          className="heroVisual"
+          initial={{ opacity: 0, y: 60 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.5, ease: EASE }}
+          transition={{ duration: 1, delay: 0.6, ease: EASE }}
         >
-          <a className="primaryButton heroButton" href="/app">
-            Get started free
-          </a>
+          <div className="heroPhoneGlow" />
+          <WhatsAppDemo />
         </motion.div>
+
+        <div className="heroFade" />
       </section>
 
       {/* ─── Value Proposition ─── */}
       <section className="landingValue">
+        <div className="sectionOrbLeft" />
         <Reveal>
+          <p className="sectionEyebrow">Why 365 Tasks</p>
           <h2 className="sectionHeading">
             Your AI chief of staff,
             <br />
-            on WhatsApp.
+            delivered through WhatsApp.
           </h2>
         </Reveal>
 
@@ -235,8 +289,8 @@ export default function Landing() {
           viewport={{ once: true, margin: "-60px" }}
         >
           {VALUE_PROPS.map((item, i) => (
-            <motion.div className="valueItem" key={i} variants={staggerItem}>
-              <span className="valueNum">{item.num}</span>
+            <motion.div className="valueCard" key={i} variants={staggerItem}>
+              <div className="valueIconBox">{item.icon}</div>
               <h3>{item.title}</h3>
               <p>{item.desc}</p>
             </motion.div>
@@ -246,49 +300,72 @@ export default function Landing() {
 
       {/* ─── How It Works ─── */}
       <section className="landingHowItWorks" id="how-it-works">
-        <Reveal className="howItWorksHeader">
-          <h2 className="sectionHeading">How it works</h2>
+        <Reveal>
+          <p className="sectionEyebrow">How it works</p>
+          <h2 className="sectionHeading">
+            Three steps to
+            <br />
+            execution mode.
+          </h2>
         </Reveal>
 
-        <motion.div
-          className="stepsGrid"
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-60px" }}
-        >
+        <div className="stepsGrid">
           {STEPS.map((step, i) => (
-            <motion.div className="stepItem" key={i} variants={staggerItem}>
-              <span className="stepNum">{step.num}</span>
-              <h3>{step.title}</h3>
-              <p>{step.desc}</p>
-            </motion.div>
+            <Reveal key={i} delay={i * 0.12}>
+              <div className="stepCard">
+                <div className="stepNumBg">{step.num}</div>
+                <span className="stepNum">{step.num}</span>
+                <h3>{step.title}</h3>
+                <p>{step.desc}</p>
+              </div>
+            </Reveal>
           ))}
-        </motion.div>
+        </div>
       </section>
 
       {/* ─── Demo ─── */}
       <section className="landingDemo" id="demo">
+        <div className="demoGradient" />
+        <div className="demoNoise" />
+
         <Reveal className="demoHeader">
-          <h2 className="sectionHeading">See it in action</h2>
+          <p className="sectionEyebrow sectionEyebrowLight">Live preview</p>
+          <h2 className="sectionHeading sectionHeadingLight">
+            See it in action
+          </h2>
           <p className="demoSubtitle">
             This is what a productive day looks like on WhatsApp.
           </p>
         </Reveal>
 
         <Reveal className="phoneContainer">
+          <div className="demoPhoneGlow" />
           <WhatsAppDemo />
         </Reveal>
       </section>
 
       {/* ─── Final CTA ─── */}
       <section className="landingFinalCta">
+        <div className="ctaOrb ctaOrb1" />
+        <div className="ctaOrb ctaOrb2" />
         <Reveal>
-          <h2>Ready to get things done?</h2>
+          <h2>
+            Build your year,
+            <br />
+            one day at a time.
+          </h2>
         </Reveal>
-        <Reveal delay={0.15}>
-          <a className="primaryButton ctaButton" href="/app">
+        <Reveal delay={0.1}>
+          <p className="ctaSub">
+            Start with your current list. Text your first task.
+            <br />
+            The agent handles the rest.
+          </p>
+        </Reveal>
+        <Reveal delay={0.2}>
+          <a className="ctaButton" href="/app">
             Get started free
+            <span className="heroButtonArrow">→</span>
           </a>
         </Reveal>
       </section>
@@ -304,6 +381,7 @@ export default function Landing() {
             <a href="#">Terms</a>
           </div>
         </div>
+        <div className="footerDivider" />
         <p className="footerCopy">
           &copy; 2025 365 Tasks. All rights reserved.
         </p>

@@ -1328,7 +1328,7 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
       const postponed = Number(task.rescheduleCount || 0);
       let line = `${index + 1}. ${task.title} (${est}m${progress?.isMultiDay ? ` today, ${progress.progressLabel}` : ""})`;
       if (postponed >= 2) line += ` \u2014 you've postponed this ${postponed} times`;
-      if (task.avoidanceScore >= 3) line += " \u2014 stop avoiding this";
+      if (task.avoidanceScore >= 3) line += " \u2014 this one keeps getting skipped";
       lines.push(line);
     });
   }
@@ -1347,11 +1347,11 @@ export function buildMorningBrief({ planState, tone = "firm" }) {
   lines.push(`Total focus needed: ${totalMinutes} minutes.`);
 
   if (tone === "ruthless") {
-    lines.push("Rule: priority #1 gets done before anything else. No inbox, no calls.");
+    lines.push("Start with #1 before anything else.");
   } else if (tone === "gentle") {
-    lines.push("Start with priority #1. One focused block of 25 minutes.");
+    lines.push("Maybe start with #1? Even just 25 minutes.");
   } else {
-    lines.push("Rule: finish the hard thing first. Reply 'done' when completed.");
+    lines.push("Start with the hardest one. Reply 'done' when you're through it.");
   }
 
   if (deferred.length > 0) {
@@ -1398,7 +1398,7 @@ export async function generateNudge({
   const top = planState.topPriorities.filter((task) => !task.done);
   if (top.length === 0) {
     return {
-      body: "Strong progress today. Capture one meaningful next step for tomorrow.",
+      body: "You're all caught up today. Got anything you want to add for tomorrow?",
       relatedTaskIds: [],
       reason: "no_open_top_priorities",
     };
@@ -1413,7 +1413,7 @@ export async function generateNudge({
 
   if (Number(target.rescheduleCount || 0) >= 2 || Number(target.avoidanceScore || 0) >= 3) {
     return {
-      body: `You postponed "${target.title}" multiple times. Start a 20-minute first step now?`,
+      body: `"${target.title}" keeps getting pushed. Want to just do 10 minutes on it and see how it goes?`,
       relatedTaskIds: [target.id],
       reason: "repeated_postponement",
     };
@@ -1421,7 +1421,7 @@ export async function generateNudge({
 
   if (completedLowValueOnly && Number(target.importance || 0) >= 4) {
     return {
-      body: `You cleared admin tasks, but "${target.title}" is still pending. Start a focused block now?`,
+      body: `Nice work on the small stuff. "${target.title}" is still there though — got time for it?`,
       relatedTaskIds: [target.id],
       reason: "drift_to_low_value",
     };
@@ -1440,13 +1440,13 @@ export async function generateNudge({
 
   if (tone === "ruthless") {
     return {
-      body: `"${target.title}"${progressNote} is still pending. ${openCount} priorities, ${totalLeft}m total. Start ${sprintMinutes} minutes now. No negotiation.`,
+      body: `"${target.title}"${progressNote} — still not done. ${openCount} things left, about ${totalLeft}m total. ${sprintMinutes} minutes, let's go.`,
       relatedTaskIds: [target.id],
       reason: "next_best_incomplete",
     };
   }
   return {
-    body: `Your next priority is "${target.title}"${progressNote} (${sprintMinutes}m). ${openCount - 1} more after this. Start now and reply 'done' when finished.`,
+    body: `Next up: "${target.title}"${progressNote}, about ${sprintMinutes}m. ${openCount - 1} more after that.`,
     relatedTaskIds: [target.id],
     reason: "next_best_incomplete",
   };

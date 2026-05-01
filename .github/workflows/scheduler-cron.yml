@@ -12,8 +12,20 @@ jobs:
     steps:
       - name: Ping scheduler endpoint
         run: |
-          curl -sf -X POST \
+          RESPONSE=$(curl -sL -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP_STATUS:%{http_code}" \
             "${{ secrets.SCHEDULER_URL }}" \
             --max-time 30 \
-            || echo "Scheduler ping failed (non-fatal)"
+            2>&1) || true
+
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+
+          echo "Status: $HTTP_STATUS"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Scheduler returned HTTP $HTTP_STATUS"
+            exit 1
+          fi

@@ -163,9 +163,12 @@ export default async function handler(req, res) {
   const authHeader = String(req.headers.authorization || "").trim();
   const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
-  const isCronAuth = cronSecret && bearerToken &&
-    bearerToken.length === cronSecret.length &&
-    crypto.timingSafeEqual(Buffer.from(bearerToken), Buffer.from(cronSecret));
+  const queryToken = String(req.query?.token || "").trim();
+  const tokenCandidate = bearerToken || queryToken;
+
+  const isCronAuth = cronSecret && tokenCandidate &&
+    tokenCandidate.length === cronSecret.length &&
+    crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
 
   let isUserAuth = false;
   if (!isCronAuth) {
@@ -184,6 +187,7 @@ export default async function handler(req, res) {
   const report = [];
 
   for (const profile of profiles) {
+   try {
     if (!profile.autoplanEnabled) continue;
     // Skip users whose bot is paused
     const pausedUntil = await getBotPauseStatus(profile.userId);
@@ -405,6 +409,10 @@ export default async function handler(req, res) {
     }
 
     report.push(profileReport);
+   } catch (err) {
+    console.error("user_processing_failed", { userId: profile.userId, error: err.message, stack: err.stack });
+    report.push({ userId: profile.userId, error: err.message });
+   }
   }
 
   // ─── Process Pending Pulses ───

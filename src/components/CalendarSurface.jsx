@@ -242,6 +242,8 @@ export default function CalendarSurface({
           title: entry.taskTitle || task.title,
           effortType: entry.effortType || task.effortType,
           estimatedMinutes: entry.estimatedMinutes || task.estimatedMinutes,
+          longTermGoalTitle: entry.goalTitle || null,
+          focusDepth: entry.focusDepth || null,
           startMinutes: startMin,
           endMinutes: endMin,
           startLabel: entry.startHour || "",
@@ -537,7 +539,7 @@ export default function CalendarSurface({
                         <span className="calendarTimeBlockMeta">
                           {item._isCalendarEvent
                             ? (item.location || "Google Calendar")
-                            : [goal?.title, item.estimatedMinutes ? formatMinutes(item.estimatedMinutes) : "", item.isRecurring ? "recurring" : ""].filter(Boolean).join(" \u00b7 ")}
+                            : [item.longTermGoalTitle || goal?.title, item.estimatedMinutes ? formatMinutes(item.estimatedMinutes) : "", item.focusDepth === "deep" ? "deep focus" : "", item.isRecurring ? "recurring" : ""].filter(Boolean).join(" \u00b7 ")}
                         </span>
                       </div>
                       {!item._isCalendarEvent && !item._done && (
@@ -577,8 +579,9 @@ export default function CalendarSurface({
                           <div className="calendarTaskInfo">
                             <span className="calendarTaskTitle">{task.title}</span>
                             <span className="calendarTaskMeta">
-                              {goal?.title || ""}
+                              {task.longTermGoalTitle || goal?.title || ""}
                               {task.estimatedMinutes ? ` \u00b7 ${formatMinutes(task.estimatedMinutes)}` : ""}
+                              {task.focusDepth === "deep" && " \u00b7 deep focus"}
                               {task.isRecurring && " \u00b7 recurring"}
                             </span>
                           </div>

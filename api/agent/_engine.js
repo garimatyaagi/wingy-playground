@@ -13,8 +13,8 @@ import {
   getCoreMemory,
   listTaskOccurrences,
   getMultiDayProgress,
-  createLongTermGoal,
   createGoalMilestone,
+  updateMilestone,
   getSupabaseAdmin,
   saveDailyScorecard,
   getDailyScorecard,
@@ -1454,47 +1454,12 @@ export async function generateNudge({
 
 // ─── Long-Term Goal Auto-Sync & Decomposition ───
 
-const SKIP_GOAL_TITLES = new Set([
-  "inbox / unassigned", "general", "inbox", "unassigned",
-]);
-
 async function ensureGoalsDecomposed(userId) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !userId) return;
 
-  // 1. Get all goals from the old tasks table
-  const { data: oldGoals, error: oldErr } = await supabase
-    .from("tasks")
-    .select("id, title, status, created_at")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .order("created_at", { ascending: true });
-  if (oldErr || !oldGoals?.length) return;
-
-  // 2. Get existing long-term goals
-  const ltGoals = await listActiveLongTermGoals(userId);
-  const ltTitles = new Set(ltGoals.map((g) => g.title.toLowerCase().trim()));
-
-  // 3. Sync: create long_term_goals entries for old goals that don't have one
-  const newlyCreated = [];
-  for (const og of oldGoals) {
-    const titleLower = (og.title || "").toLowerCase().trim();
-    if (SKIP_GOAL_TITLES.has(titleLower)) continue;
-    if (ltTitles.has(titleLower)) continue;
-    if (ltGoals.length + newlyCreated.length >= 5) break;
-
-    const priority = (ltGoals.length + newlyCreated.length) === 0 ? 1 : 2;
-    const created = await createLongTermGoal(userId, {
-      title: og.title,
-      description: "",
-      scope: "yearly",
-      priority,
-    });
-    if (created) newlyCreated.push(created);
-  }
-
-  // 4. Decompose any long-term goals that have zero milestones
-  const allLtGoals = [...ltGoals, ...newlyCreated];
+  // Decompose any long-term goals that have zero milestones
+  const allLtGoals = await listActiveLongTermGoals(userId);
   for (const goal of allLtGoals) {
     const milestones = await listMilestonesForGoal(goal.id, userId);
     if (milestones.length > 0) continue;
@@ -1578,15 +1543,35 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
     if (!currentMilestone) continue;
 
     // Extract the daily task from milestone's stored tasks
-    const milestoneTasks = Array.isArray(currentMilestone.tasks) ? currentMilestone.tasks : [];
+    let milestoneTasks = Array.isArray(currentMilestone.tasks) ? currentMilestone.tasks : [];
+
+    // Re-decompose milestones with empty tasks arrays
+    if (milestoneTasks.length === 0) {
+      try {
+        const reDecomp = await llmDecomposeGoal(
+          `${goal.title} — ${currentMilestone.title}`,
+          currentMilestone.description || "",
+          currentMilestone.target_date,
+          userId
+        );
+        if (reDecomp?.milestones?.[0]?.tasks?.length > 0) {
+          const newTasks = reDecomp.milestones[0].tasks;
+          await updateMilestone(currentMilestone.id, { tasks: newTasks });
+          milestoneTasks = newTasks;
+        }
+      } catch (e) {
+        console.error("milestone re-decomposition failed", e.message);
+      }
+      // If still empty after re-decomposition, skip this goal today
+      if (milestoneTasks.length === 0) continue;
+    }
+
     const dailyTask = milestoneTasks.find((t) => t.frequency === "daily")
       || milestoneTasks.find((t) => /3x|2x/i.test(t.frequency || ""))
       || milestoneTasks[0];
 
-    // Use the granular task title, not the milestone title
-    const taskTitle = dailyTask
-      ? `[${goal.title}] ${dailyTask.title}`
-      : `[${goal.title}] ${currentMilestone.title}`;
+    // Use the granular task title — goal context shown separately in UI
+    const taskTitle = dailyTask?.title || currentMilestone.title;
 
     // Use LLM-estimated minutes with adaptive reduction
     let estimatedMinutes = dailyTask?.estimatedMinutes || 20;
@@ -1608,6 +1593,8 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
       goalName: goal.title,
       longTermGoalId: goal.id,
       milestoneId: currentMilestone.id,
+      focusDepth: dailyTask?.focusDepth || null,
+      contextTags: dailyTask?.contextTags || null,
     });
 
     if (task) {

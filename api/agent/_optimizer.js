@@ -212,7 +212,7 @@ export function extractFreeSlots(calendarEvents, workdayStart, workdayEnd, timez
  * Score placing a task in a specific slot at a specific position.
  * Higher = better fit.
  */
-function scoreTaskInSlot(task, slot, position, prevTaskType, timezone) {
+function scoreTaskInSlot(task, slot, position, prevTask, timezone) {
   let score = 0;
 
   const startHour = hourOfDay(slot.start, timezone);
@@ -246,6 +246,7 @@ function scoreTaskInSlot(task, slot, position, prevTaskType, timezone) {
   }
 
   // 4. Context switching cost (0 to -10 points)
+  const prevTaskType = prevTask?.effortType || null;
   if (prevTaskType) {
     score -= contextSwitchCost(prevTaskType, task.effortType) * 10;
   }
@@ -272,6 +273,22 @@ function scoreTaskInSlot(task, slot, position, prevTaskType, timezone) {
   // 7. Recurring tasks get a small boost (they're expected at regular times)
   if (task.recurringDueToday) {
     score += 5;
+  }
+
+  // 8. Focus depth match (0-12 points)
+  // Deep focus tasks should go in long uninterrupted slots
+  if (task.focusDepth === "deep") {
+    const remainingSlot = slotMinutes;
+    if (remainingSlot >= 45) score += 12;
+    else if (remainingSlot >= 30) score += 5;
+    else score -= 8;
+  }
+
+  // 9. Context tag batching (0-8 points)
+  // Tasks sharing context tags with the previous task get a bonus
+  if (prevTask?.contextTags?.length > 0 && task.contextTags?.length > 0) {
+    const shared = task.contextTags.filter((t) => prevTask.contextTags.includes(t));
+    score += Math.min(8, shared.length * 4);
   }
 
   return score;
@@ -333,6 +350,10 @@ export function optimizeSchedule({
     taskTitle: entry.task.title,
     effortType: entry.task.effortType,
     estimatedMinutes: entry.task.estimatedMinutes || 30,
+    longTermGoalId: entry.task.longTermGoalId || null,
+    goalTitle: entry.task.goalTitle || null,
+    focusDepth: entry.task.focusDepth || null,
+    contextTags: entry.task.contextTags || null,
     slotIndex: entry.slotIndex,
     startTime: new Date(entry.startTimestamp).toISOString(),
     endTime: new Date(entry.endTimestamp).toISOString(),
@@ -398,12 +419,12 @@ function greedyPlace(tasks, freeSlots, timezone) {
 
       for (const pos of positions) {
         // What's the previous task ending right before this position?
-        const prevType = findPreviousTaskType(placed, si, pos.start);
+        const prevTask = findPreviousTask(placed, si, pos.start);
         const score = scoreTaskInSlot(
           task,
           slot,
           (pos.start - slot.start) / 60000,
-          prevType,
+          prevTask,
           timezone
         );
 
@@ -459,14 +480,14 @@ function findAvailablePositions(slot, usage, taskMinutes) {
   return positions;
 }
 
-function findPreviousTaskType(placed, slotIndex, startTimestamp) {
+function findPreviousTask(placed, slotIndex, startTimestamp) {
   let closest = null;
   let closestEnd = 0;
   for (const entry of placed) {
     if (entry.slotIndex === slotIndex && entry.endTimestamp <= startTimestamp) {
       if (entry.endTimestamp > closestEnd) {
         closestEnd = entry.endTimestamp;
-        closest = entry.task.effortType;
+        closest = entry.task;
       }
     }
   }
@@ -516,8 +537,8 @@ function localSearchSwap(result, freeSlots, timezone, maxIter = 50) {
         }
 
         // Compute scores before and after swap
-        const prevA = findPreviousTaskType(placed, a.slotIndex, a.startTimestamp);
-        const prevB = findPreviousTaskType(placed, b.slotIndex, b.startTimestamp);
+        const prevA = findPreviousTask(placed, a.slotIndex, a.startTimestamp);
+        const prevB = findPreviousTask(placed, b.slotIndex, b.startTimestamp);
 
         const currentScore =
           scoreTaskInSlot(a.task, aSlot, (a.startTimestamp - aSlot.start) / 60000, prevA, timezone) +

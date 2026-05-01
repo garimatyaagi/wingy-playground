@@ -12,28 +12,24 @@ function urgencyColor(value) {
   return "urgLow";
 }
 
-function getTimeOfDay() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "morning";
-  if (hour < 17) return "afternoon";
-  return "evening";
-}
-
 function getGreeting() {
-  const tod = getTimeOfDay();
-  if (tod === "morning") return "Good morning";
-  if (tod === "afternoon") return "Good afternoon";
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
   return "Good evening";
-}
-
-function streakLabel(days) {
-  if (days >= 7) return "On fire";
-  if (days >= 3) return "Building";
-  return "";
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function timeContextLine(totalMinutes) {
+  const hour = new Date().getHours();
+  if (totalMinutes <= 0) return null;
+  if (hour >= 21) return `${totalMinutes} min total \u00b7 pick 1 for tonight, move the rest`;
+  if (hour >= 17) return `${totalMinutes} min total \u00b7 fits in your evening`;
+  if (hour >= 12) return `${totalMinutes} min total \u00b7 plenty of afternoon left`;
+  return `${totalMinutes} min total \u00b7 solid morning ahead`;
+}
 
 export default function TodaySurface({
   dateLabel,
@@ -57,10 +53,9 @@ export default function TodaySurface({
   procrastinationSignals,
 }) {
   const now = new Date();
-  const dayNum = now.getDate();
   const weekday = WEEKDAYS[now.getDay()];
   const month = MONTHS[now.getMonth()];
-  const timeOfDay = getTimeOfDay();
+  const dayNum = now.getDate();
 
   const allTasks = [...topPriorities];
   if (nextTask && !allTasks.find((t) => t.id === nextTask.id)) {
@@ -70,80 +65,84 @@ export default function TodaySurface({
   const totalFocusMinutes = allTasks.reduce((s, t) => s + (t.estimatedMinutes || 30), 0);
   const chronicallyAvoided = allTasks.filter((t) => Number(t.rescheduleCount || 0) >= 3);
 
+  // Determine if urgency badges add value (2+ distinct levels visible)
+  const visibleTasks = allTasks.slice(0, 5);
+  const urgencyLevels = new Set(visibleTasks.map((t) => urgencyLabel(t.urgency)));
+  const showUrgency = urgencyLevels.size >= 2;
+
+  // Momentum: only show when there's actual progress
+  const hasProgress = weeklyMomentum && (
+    weeklyMomentum.completedThisWeek > 0 ||
+    weeklyMomentum.deepWorkHours > 0 ||
+    weeklyMomentum.goalsAdvanced > 0
+  );
+  const habitRate = executionMetrics?.recurringConsistency != null
+    ? Math.round(executionMetrics.recurringConsistency * 100)
+    : null;
+
+  // Build inline stats summary
+  const statParts = [];
+  if (dueTodayCount > 0) statParts.push(`${dueTodayCount} due`);
+  if (overdueCount > 0) statParts.push(`${overdueCount} overdue`);
+  if (blockedCount > 0) statParts.push(`${blockedCount} blocked`);
+  if (totalFocusMinutes > 0) statParts.push(`${totalFocusMinutes}m`);
+  const statsSummary = statParts.join(" \u00b7 ");
+
+  // Show at most 1 behavioral nudge
+  const showAvoidance = chronicallyAvoided.length > 0;
+  const showSignals = !showAvoidance && procrastinationSignals?.length > 0;
+
+  // Split tasks: first = "up next", rest = "also today"
+  const upNext = visibleTasks[0] || null;
+  const alsoToday = visibleTasks.slice(1);
+
+  const timeCtx = timeContextLine(totalFocusMinutes);
+
   return (
     <section className="todaySurface">
-      <article className="todayDateCard">
-        <div className="todayDateLeft">
-          <span className="todayDayNumber">{dayNum}</span>
-        </div>
-        <div className="todayDateRight">
-          <p className="todayGreeting">{getGreeting()}</p>
+      {/* ─── Unified greeting ─── */}
+      <div className="todayGreetingBlock">
+        <div className="todayGreetingLeft">
+          <h2 className="todayGreeting">{getGreeting()}</h2>
           <p className="todayFullDate">{weekday}, {month} {dayNum}</p>
-          <div className="todayTimeChip">
-            <span className={`todayTimeDot ${timeOfDay}`} />
-            <span>{timeOfDay.charAt(0).toUpperCase() + timeOfDay.slice(1)}</span>
-          </div>
         </div>
-      </article>
+        {statsSummary && (
+          <span className="todayInlineStats">{statsSummary}</span>
+        )}
+      </div>
 
-      {/* Weekly Momentum Banner */}
-      {weeklyMomentum && (
-        <article className="cardShell todayMomentumBanner">
-          <div className="momentumRow">
-            <div className="momentumStat">
-              <strong>{weeklyMomentum.completedThisWeek}</strong>
-              <span>done this week</span>
-            </div>
-            <div className="momentumStat">
-              <strong>{weeklyMomentum.deepWorkHours}h</strong>
-              <span>deep work</span>
-            </div>
-            <div className="momentumStat">
-              <strong>{weeklyMomentum.goalsAdvanced}</strong>
-              <span>goals moved</span>
-            </div>
-            {executionMetrics?.recurringConsistency != null && (
-              <div className="momentumStat">
-                <strong>{Math.round(executionMetrics.recurringConsistency * 100)}%</strong>
-                <span>habit rate</span>
-              </div>
-            )}
-          </div>
-          {weeklyMomentum.insight && (
-            <p className="momentumInsight">{weeklyMomentum.insight}</p>
+      {/* ─── Momentum (only when there's progress) ─── */}
+      {hasProgress && (
+        <p className="todayMomentumLine">
+          {weeklyMomentum.completedThisWeek > 0 && (
+            <span>{weeklyMomentum.completedThisWeek} done this week</span>
           )}
-        </article>
+          {weeklyMomentum.deepWorkHours > 0 && (
+            <span>{weeklyMomentum.deepWorkHours}h deep work</span>
+          )}
+          {weeklyMomentum.goalsAdvanced > 0 && (
+            <span>{weeklyMomentum.goalsAdvanced} goal{weeklyMomentum.goalsAdvanced !== 1 ? "s" : ""} moved</span>
+          )}
+          {habitRate > 0 && (
+            <span>{habitRate}% habits</span>
+          )}
+        </p>
       )}
 
-      <article className="todayStatsRow">
-        {dueTodayCount > 0 && (
-          <div className="todayStat">
-            <strong>{dueTodayCount}</strong>
-            <span>due today</span>
-          </div>
-        )}
-        {overdueCount > 0 && (
-          <div className="todayStat overdue">
-            <strong>{overdueCount}</strong>
-            <span>overdue</span>
-          </div>
-        )}
-        {blockedCount > 0 && (
-          <div className="todayStat blocked">
-            <strong>{blockedCount}</strong>
-            <span>blocked</span>
-          </div>
-        )}
-        {totalFocusMinutes > 0 && (
-          <div className="todayStat">
-            <strong>{totalFocusMinutes}m</strong>
-            <span>focus needed</span>
-          </div>
-        )}
-      </article>
+      {/* ─── Fresh week prompt (all zeros) ─── */}
+      {weeklyMomentum && !hasProgress && allTasks.length > 0 && (
+        <p className="todayFreshWeek">Fresh week. Start with one.</p>
+      )}
 
-      {/* Avoidance Alerts */}
-      {chronicallyAvoided.length > 0 && (
+      {/* ─── Actionable insight ─── */}
+      {weeklyMomentum?.insight && (
+        <div className="todayInsightNudge">
+          <p>{weeklyMomentum.insight}</p>
+        </div>
+      )}
+
+      {/* ─── Avoidance alert (max 1 nudge type) ─── */}
+      {showAvoidance && (
         <article className="cardShell todayAvoidanceCard">
           <h3>You keep pushing these</h3>
           {chronicallyAvoided.slice(0, 3).map((task) => (
@@ -168,66 +167,115 @@ export default function TodaySurface({
         </article>
       )}
 
+      {/* ─── Priorities ─── */}
       <article className="cardShell todayPrioritiesCard">
-        <h3>Priorities</h3>
-
         {allTasks.length === 0 ? (
           <div className="emptyHint">
             <p>Nothing on deck for today.</p>
             <p className="subtle">Add tasks with due dates and they'll show up here.</p>
           </div>
         ) : (
-          <div className="todayTaskList">
-            {allTasks.slice(0, 5).map((task, index) => {
-              const postponed = Number(task.rescheduleCount || 0);
-              return (
-                <div key={task.id} className={`todayTaskRow${postponed >= 3 ? " taskAvoided" : ""}`}>
+          <>
+            {/* Up Next — elevated primary task */}
+            {upNext && (
+              <div className="todayUpNext">
+                <span className="todayUpNextLabel">Up next</span>
+                <div className={`todayUpNextRow${Number(upNext.rescheduleCount || 0) >= 3 ? " taskAvoided" : ""}`}>
                   <button
                     type="button"
                     className="todayTaskCheck"
-                    onClick={() => onDone(task)}
+                    onClick={() => onDone(upNext)}
                     aria-label="Mark done"
                   >
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                      <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                      <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
                     </svg>
                   </button>
-                  <div className="todayTaskContent">
+                  <div className="todayUpNextContent">
                     <button
                       type="button"
-                      className="todayTaskTitle"
-                      onClick={() => onOpenTask(task.goalId, task.id)}
+                      className="todayUpNextTitle"
+                      onClick={() => onOpenTask(upNext.goalId, upNext.id)}
                     >
-                      {task.title}
+                      {upNext.title}
                     </button>
                     <div className="todayTaskMeta">
-                      <span className="todayTaskGoal">{task.goalTitle}</span>
-                      {task.estimatedMinutes && <span>{task.estimatedMinutes}m</span>}
-                      <span className={`todayTaskUrgency ${urgencyColor(task.urgency)}`}>
-                        {urgencyLabel(task.urgency)}
-                      </span>
-                      {postponed >= 2 && (
-                        <span className="todayTaskPostponed">pushed {postponed}x</span>
+                      {upNext.goalTitle && <span className="todayTaskGoal">{upNext.goalTitle}</span>}
+                      {upNext.estimatedMinutes && <span>{upNext.estimatedMinutes}m</span>}
+                      {showUrgency && (
+                        <span className={`todayTaskUrgency ${urgencyColor(upNext.urgency)}`}>
+                          {urgencyLabel(upNext.urgency)}
+                        </span>
                       )}
                     </div>
                   </div>
-                  <div className="todayTaskActions">
-                    <button type="button" className="ghostButton mini" onClick={() => onStartNow(task)}>
-                      Start
-                    </button>
-                    <button type="button" className="ghostButton mini" onClick={() => onSnooze(task)}>
-                      Later
-                    </button>
-                  </div>
+                  <button type="button" className="primaryButton mini" onClick={() => onStartNow(upNext)}>
+                    Start
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            )}
+
+            {/* Also today — secondary tasks */}
+            {alsoToday.length > 0 && (
+              <div className="todayAlsoToday">
+                <span className="todayAlsoLabel">Also today</span>
+                <div className="todayTaskList">
+                  {alsoToday.map((task) => {
+                    const postponed = Number(task.rescheduleCount || 0);
+                    return (
+                      <div key={task.id} className={`todayTaskRow${postponed >= 3 ? " taskAvoided" : ""}`}>
+                        <button
+                          type="button"
+                          className="todayTaskCheck"
+                          onClick={() => onDone(task)}
+                          aria-label="Mark done"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                            <circle cx="9" cy="9" r="8" stroke="currentColor" strokeWidth="1.5" />
+                          </svg>
+                        </button>
+                        <div className="todayTaskContent">
+                          <button
+                            type="button"
+                            className="todayTaskTitle"
+                            onClick={() => onOpenTask(task.goalId, task.id)}
+                          >
+                            {task.title}
+                          </button>
+                          <div className="todayTaskMeta">
+                            {task.goalTitle && <span className="todayTaskGoal">{task.goalTitle}</span>}
+                            {task.estimatedMinutes && <span>{task.estimatedMinutes}m</span>}
+                            {showUrgency && (
+                              <span className={`todayTaskUrgency ${urgencyColor(task.urgency)}`}>
+                                {urgencyLabel(task.urgency)}
+                              </span>
+                            )}
+                            {postponed >= 2 && (
+                              <span className="todayTaskPostponed">pushed {postponed}x</span>
+                            )}
+                          </div>
+                        </div>
+                        <button type="button" className="ghostButton mini" onClick={() => onSnooze(task)}>
+                          Later
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Time context */}
+            {timeCtx && (
+              <p className="todayTimeContext">{timeCtx}</p>
+            )}
+          </>
         )}
       </article>
 
-      {/* Procrastination Signals */}
-      {procrastinationSignals?.length > 0 && (
+      {/* ─── Procrastination signals (only if no avoidance card shown) ─── */}
+      {showSignals && (
         <article className="cardShell todaySignalsCard">
           <h3>Patterns detected</h3>
           {procrastinationSignals.slice(0, 2).map((signal, i) => (

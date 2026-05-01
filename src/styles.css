@@ -2417,8 +2417,40 @@ select {
    ═══════════════════════════════════════════════ */
 
 .landingPage {
-  background: #FFFFFF;
+  background: #FFFCEC;
   overflow-x: hidden;
+}
+
+/* Noise texture — gives matte/grain feel to colored sections */
+.noiseOverlay {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Wavy section dividers */
+.waveDivider {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  line-height: 0;
+}
+
+.waveDivider svg {
+  display: block;
+  width: 100%;
+  height: 48px;
+}
+
+.waveDividerFlip {
+  transform: scaleY(-1);
+  top: -1px;
+  bottom: auto;
 }
 
 /* ─── Nav ─── */
@@ -2427,20 +2459,19 @@ select {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 100;
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 32px;
   transition: all 0.4s ease;
-  border-bottom: 1px solid transparent;
 }
 
 .landingNav.scrolled {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border-bottom-color: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 252, 236, 0.88);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.04);
 }
 
 .landingNav.heroNav .navLogo,
@@ -2494,12 +2525,10 @@ select {
   background: none;
   color: var(--text);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
-.navCta:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
+.navCta:hover { background: rgba(0, 0, 0, 0.04); }
 
 .navMobileToggle {
   display: none;
@@ -2507,56 +2536,52 @@ select {
   background: none;
   cursor: pointer;
   padding: 8px;
-  color: var(--text);
   font-size: 22px;
 }
 
-/* ─── Hero ─── */
+/* ─── Hero (flat blue + noise = matte) ─── */
 .landingHero {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 100px 48px 80px;
+  padding: 100px 48px 120px;
   position: relative;
   overflow: hidden;
   background: #3139FB;
 }
 
 .heroInner {
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 80px;
+  gap: 72px;
   align-items: center;
   max-width: 1100px;
   width: 100%;
 }
 
 .heroText {
-  max-width: 560px;
+  max-width: 520px;
 }
 
 .heroText h1 {
   font-family: var(--font-display);
-  font-size: clamp(40px, 5.5vw, 72px);
+  font-size: clamp(38px, 5vw, 64px);
   font-weight: 700;
-  line-height: 1.08;
+  line-height: 1.1;
   letter-spacing: -0.035em;
   color: #FFFFFF;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .heroSub {
   font-size: 17px;
   line-height: 1.65;
-  color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 36px;
-}
-
-.heroCtas {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 32px;
+  max-width: 40ch;
 }
 
 .heroBtn {
@@ -2573,53 +2598,55 @@ select {
 }
 
 .heroBtn:hover {
-  transform: scale(1.03);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: scale(1.04);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 
 .heroBtn:active { transform: scale(0.98); }
 
 .heroPhone {
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
-/* ─── Divider ─── */
-.sectionDivider {
-  height: 1px;
-  background: rgba(0, 0, 0, 0.06);
-  max-width: 960px;
-  margin: 0 auto;
-}
-
-/* ─── How it works ─── */
+/* ─── How it works (warm cream section) ─── */
 .landingHow {
-  padding: 6rem 48px;
-  max-width: 800px;
+  position: relative;
+  padding: 5rem 48px 7rem;
+  background: #FFFCEC;
+}
+
+.howInner {
+  max-width: 760px;
   margin: 0 auto;
 }
 
-.landingHow > div > h2 {
+.howInner > div > h2 {
   font-family: var(--font-display);
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(26px, 4vw, 42px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--text);
-  margin-bottom: 4rem;
+  margin-bottom: 3.5rem;
 }
 
 .howSteps {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .howStep {
   display: grid;
-  grid-template-columns: 48px 1fr;
-  gap: 24px;
-  padding: 32px 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  grid-template-columns: 40px 1fr;
+  gap: 20px;
+  padding: 28px 0;
+  border-top: 1px solid rgba(26, 26, 46, 0.08);
+}
+
+.howStep:last-child {
+  border-bottom: 1px solid rgba(26, 26, 46, 0.08);
 }
 
 .howNum {
@@ -2627,14 +2654,14 @@ select {
   font-size: 15px;
   font-weight: 600;
   color: var(--accent);
-  padding-top: 2px;
+  padding-top: 1px;
 }
 
 .howBody h3 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  margin-bottom: 8px;
+  letter-spacing: -0.015em;
+  margin-bottom: 6px;
   color: var(--text);
 }
 
@@ -2644,16 +2671,17 @@ select {
   color: var(--text-secondary);
 }
 
-/* ─── Showcase ─── */
-.landingShowcase {
-  padding: 6rem 48px;
+/* ─── Demo (soft blue-gray section) ─── */
+.landingDemo {
+  position: relative;
+  padding: 5rem 48px 7rem;
   text-align: center;
-  background: #F7F7F8;
+  background: #E0E0F7;
 }
 
-.landingShowcase > div > h2 {
+.landingDemo > div > h2 {
   font-family: var(--font-display);
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(26px, 4vw, 42px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -2661,18 +2689,18 @@ select {
   margin-bottom: 3rem;
 }
 
-.showcasePhone {
+.demoPhone {
   display: flex;
   justify-content: center;
 }
 
 /* ─── Phone Mockup ─── */
 .phoneMockup {
-  width: 320px;
+  width: 310px;
   border-radius: 36px;
   background: #111b21;
   padding: 10px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
 .phoneScreen {
@@ -2751,24 +2779,29 @@ select {
   margin-top: 4px;
 }
 
-/* ─── CTA ─── */
+/* ─── CTA (blue block, textured) ─── */
 .landingCta {
-  padding: 8rem 48px;
+  position: relative;
+  padding: 7rem 48px 9rem;
   text-align: center;
   background: #3139FB;
 }
 
 .landingCta h2 {
+  position: relative;
+  z-index: 2;
   font-family: var(--font-display);
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(26px, 4vw, 42px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: #FFFFFF;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .ctaBtn {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   background: #FFFFFF;
@@ -2782,19 +2815,22 @@ select {
 }
 
 .ctaBtn:hover {
-  transform: scale(1.03);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: scale(1.04);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 
 .ctaBtn:active { transform: scale(0.98); }
 
-/* ─── Footer ─── */
+/* ─── Footer (dark blue) ─── */
 .landingFooter {
-  padding: 32px 48px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  position: relative;
+  padding: 36px 48px;
+  background: #2702C2;
 }
 
 .footerInner {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2804,9 +2840,9 @@ select {
 
 .footerBrand {
   font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .footerLinks {
@@ -2816,12 +2852,12 @@ select {
 
 .footerLinks a {
   font-size: 13px;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.4);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
-.footerLinks a:hover { color: var(--text); }
+.footerLinks a:hover { color: rgba(255, 255, 255, 0.8); }
 
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
@@ -2836,55 +2872,49 @@ select {
   }
 
   .heroText { max-width: 100%; }
+  .heroSub { max-width: 100%; }
 
   .heroPhone {
     display: flex;
     justify-content: center;
   }
-
-  .heroCtas { justify-content: center; }
-
-  .heroSub br { display: none; }
 }
 
 @media (max-width: 640px) {
-  .landingHero { padding: 100px 20px 60px; }
+  .landingHero { padding: 100px 20px 100px; }
 
   .heroText h1 {
-    font-size: clamp(32px, 9vw, 48px);
+    font-size: clamp(30px, 8.5vw, 44px);
   }
 
   .heroSub { font-size: 15px; }
 
-  .phoneMockup { width: 280px; }
+  .phoneMockup { width: 270px; }
 
-  .landingHow,
-  .landingShowcase {
-    padding: 4rem 20px;
-  }
+  .waveDivider svg { height: 32px; }
 
-  .landingCta { padding: 5rem 20px; }
+  .landingHow { padding: 3.5rem 20px 5rem; }
+  .landingDemo { padding: 3.5rem 20px 5rem; }
+  .landingCta { padding: 4rem 20px 6rem; }
+  .landingFooter { padding: 28px 20px; }
 
   .howStep {
-    grid-template-columns: 32px 1fr;
-    gap: 16px;
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+    padding: 22px 0;
   }
 
-  .landingHow > div > h2,
-  .landingShowcase > div > h2,
+  .howInner > div > h2,
+  .landingDemo > div > h2,
   .landingCta h2 {
-    font-size: clamp(24px, 7vw, 36px);
+    font-size: clamp(22px, 6.5vw, 32px);
   }
 
-  .landingHow > div > h2 br,
-  .landingShowcase > div > h2 br,
-  .landingCta h2 br {
-    display: none;
-  }
+  .landingCta h2 br { display: none; }
 
   .footerInner {
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
     text-align: center;
   }
 }

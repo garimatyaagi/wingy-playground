@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Ping scheduler endpoint
         run: |
-          curl -sf -X POST \
+          curl -sfL -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.SCHEDULER_URL }}" \
             --max-time 30 \

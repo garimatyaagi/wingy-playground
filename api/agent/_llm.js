@@ -5,6 +5,8 @@ import {
   deleteCoreMemory,
   createPulse,
   listActiveLongTermGoals,
+  getRecentScorecards,
+  getUserInsights,
 } from "./_store.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 15000 });
@@ -303,18 +305,46 @@ async function buildMemoryContext(userId) {
   if (!userId) return "";
   try {
     const memories = await getCoreMemory(userId);
-    if (memories.length === 0) return "";
-    return "\nWhat you know about this user:\n" +
-      memories.map((m) => `- ${m.key}: ${m.value}`).join("\n") +
-      "\nUse this context naturally in your message.\n";
+    const insights = await getUserInsights(userId).catch(() => []);
+
+    const lines = [];
+
+    if (memories.length > 0) {
+      lines.push("User facts:");
+      for (const m of memories) {
+        lines.push(`- ${m.key}: ${m.value}`);
+      }
+    }
+
+    if (insights.length > 0) {
+      const weaknesses = insights.filter((i) => i.category === "weakness").slice(0, 3);
+      const strengths = insights.filter((i) => i.category === "strength").slice(0, 2);
+      const patterns = insights.filter((i) => i.category === "pattern").slice(0, 3);
+
+      if (weaknesses.length > 0) {
+        lines.push("Known weaknesses:");
+        for (const w of weaknesses) lines.push(`- ${w.insight}`);
+      }
+      if (strengths.length > 0) {
+        lines.push("Strengths:");
+        for (const s of strengths) lines.push(`- ${s.insight}`);
+      }
+      if (patterns.length > 0) {
+        lines.push("Behavioral patterns:");
+        for (const p of patterns) lines.push(`- ${p.insight}`);
+      }
+    }
+
+    if (lines.length === 0) return "";
+    return "\n" + lines.join("\n") + "\nUse this context to personalize your message.\n";
   } catch {
     return "";
   }
 }
 
-// ─── LLM Morning Brief ───
+// ─── LLM Morning Brief (Enhanced with Rich Context) ───
 
-export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) {
+export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}, briefContext = null) {
   if (!process.env.OPENAI_API_KEY) return null;
 
   const tone = profile.tone || "firm";
@@ -348,30 +378,103 @@ export async function llmMorningBrief(tasks, calendarEvents = [], profile = {}) 
     .map((g) => `- ${g}`)
     .join("\n");
 
-  const memoryContext = await buildMemoryContext(profile?.userId);
+  // Build rich profile context
+  let profileBlock = "";
+  let yesterdayBlock = "";
+  let weekBlock = "";
+  let avoidanceBlock = "";
+  let goalProgressBlock = "";
+  let emptyDayBlock = "";
 
-  const prompt = `Write a concise, personal morning briefing for today (${today}). Tone: ${tone}.
-${memoryContext}
+  if (briefContext) {
+    // User profile insights
+    const { userProfile, coreMemory, yesterdayScorecard, weekStats, chronicAvoiders, goalProgress, stallingGoals, calendarDensity, freeMinutes, taskMinutes, isEmptyDay } = briefContext;
+
+    if (coreMemory?.length > 0 || userProfile?.weaknesses?.length > 0) {
+      const memLines = (coreMemory || []).map((m) => `- ${m.key}: ${m.value}`);
+      const weakLines = (userProfile?.weaknesses || []).map((w) => `- WEAKNESS: ${w}`);
+      const strengthLines = (userProfile?.strengths || []).map((s) => `- STRENGTH: ${s}`);
+      const patternLines = (userProfile?.patterns || []).map((p) => `- PATTERN: ${p}`);
+      profileBlock = `\nWhat you know about this person:\n${[...memLines, ...weakLines, ...strengthLines, ...patternLines].join("\n")}\n`;
+    }
+
+    // Yesterday's performance
+    if (yesterdayScorecard) {
+      const rate = Math.round((yesterdayScorecard.completionRate || 0) * 100);
+      yesterdayBlock = `\nYesterday's results: ${yesterdayScorecard.tasksCompleted}/${yesterdayScorecard.tasksPlanned} tasks done (${rate}% completion rate)`;
+      if (yesterdayScorecard.topAvoidedTask) {
+        yesterdayBlock += `, avoided: "${yesterdayScorecard.topAvoidedTask}"`;
+      }
+      if (yesterdayScorecard.streakDays > 0) {
+        yesterdayBlock += ` | Streak: ${yesterdayScorecard.streakDays} days`;
+      }
+      yesterdayBlock += "\n";
+    }
+
+    // Week stats
+    if (weekStats?.avgCompletionRate !== null && weekStats?.daysTracked > 0) {
+      weekBlock = `This week: ${Math.round((weekStats.avgCompletionRate || 0) * 100)}% avg completion over ${weekStats.daysTracked} days. Current streak: ${weekStats.currentStreak} days.\n`;
+    }
+
+    // Chronic avoidance alerts
+    if (chronicAvoiders?.length > 0) {
+      avoidanceBlock = `\nAVOIDANCE ALERTS:\n${chronicAvoiders.map((t) => `- "${t.title}" — postponed ${t.rescheduleCount}x (importance: ${t.importance}/5)`).join("\n")}\n`;
+    }
+
+    // Goal progress
+    if (goalProgress?.length > 0) {
+      goalProgressBlock = `\nGoal progress this week:\n${goalProgress.map((g) => {
+        const rate = g.weeklyRate !== null ? `${g.weeklyRate}%` : "no data";
+        const stalling = stallingGoals?.some((sg) => sg.title === g.title) ? " ⚠ STALLING" : "";
+        return `- ${g.title} (P${g.priority}): ${rate} completion${stalling}`;
+      }).join("\n")}\n`;
+    }
+
+    // Empty day / underutilized
+    if (isEmptyDay) {
+      emptyDayBlock = `\nDAY STATUS: Nearly empty — only ${topTasks.length} task(s), ${freeMinutes}m free time available. This person needs a plan.\n`;
+      if (stallingGoals?.length > 0) {
+        emptyDayBlock += `Suggest tasks from these stalling goals: ${stallingGoals.map((g) => g.title).join(", ")}\n`;
+      }
+    }
+  } else {
+    // Fallback to basic memory context
+    profileBlock = await buildMemoryContext(profile?.userId);
+  }
+
+  const systemPrompt = `You are this person's executive personal assistant. You've worked with them for months and know their patterns, weaknesses, and what pushes them. You are NOT a generic AI — you are THEIR assistant who has context on their life and goals.
+
+Your job is to create a STRATEGIC day plan, not just list tasks. You must:
+- Consider their energy patterns and known weaknesses
+- Call out avoidance directly (with data)
+- Make them feel accountable to their goals
+- Be ${tone === "ruthless" ? "brutally honest — no sugar coating, challenge them" : tone === "firm" ? "direct and demanding but respectful" : "supportive but still push them"}.`;
+
+  const prompt = `Write today's strategic brief (${today}). Tone: ${tone}.
+${profileBlock}${yesterdayBlock}${weekBlock}
 Today's priorities:
 ${taskBlock || "No tasks scheduled."}
 
-${overdue.length > 0 ? `Overdue tasks:\n${overdueBlock}\n` : ""}${calendarEvents.length > 0 ? `Calendar events:\n${calBlock}\n` : ""}${recurring.length > 0 ? `Recurring habits:\n${recurringBlock}\n` : ""}${goalTaskBlock ? `Long-term goal tasks for today:\n${goalTaskBlock}\n` : ""}
+${overdue.length > 0 ? `Overdue tasks:\n${overdueBlock}\n` : ""}${calendarEvents.length > 0 ? `Calendar:\n${calBlock}\n` : ""}${recurring.length > 0 ? `Recurring habits:\n${recurringBlock}\n` : ""}${goalTaskBlock ? `Goal tasks for today:\n${goalTaskBlock}\n` : ""}${avoidanceBlock}${goalProgressBlock}${emptyDayBlock}
 Rules:
-- Keep it under 200 words
-- Start with a greeting appropriate to the tone
-- Mention total focus time needed
-- If there are overdue tasks, call them out (be direct if tone is ruthless)
-- If there are calendar events, weave them into the schedule
-- If there are long-term goal tasks, mention them with context (e.g. "Marathon training: 25-min run — Week 3 of your plan")
-- For multi-day tasks (shown as "session X/Y"), mention progress naturally (e.g., "You're on session 3 of 6")
-- End with one motivating line appropriate to the tone
-- Do NOT use markdown. Plain text only with line breaks.`;
+- Keep under 250 words
+- Start with a brief, personal greeting (not generic)
+- If yesterday was bad (<40% completion): acknowledge it directly and set a realistic recovery plan
+- If yesterday was great: brief positive reinforcement with streak data
+- Mention total focus time needed vs available free time
+- If there are tasks postponed 3+ times: call them out directly with the count. Be confrontational about avoidance.
+- If the day is nearly empty: SUGGEST 2-3 specific tasks based on stalling goals. Don't just say "add tasks" — propose concrete ones.
+- If there are calendar events, weave them into the schedule (e.g., "Before your 2pm call, knock out X")
+- For goal tasks: connect them to the bigger picture (e.g., "25-min run — you're in Week 3 of marathon prep")
+- End with ONE specific commitment: "Your first move: [specific task] for [X minutes]. Start by [time]."
+- Do NOT use markdown, bullet points, or emojis. Plain text only with line breaks.
+- Write like a real person texting, not a corporate assistant.`;
 
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
-        { role: "system", content: "You are a personal productivity assistant writing WhatsApp messages. Keep messages casual, direct, and human." },
+        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
     });
@@ -382,9 +485,9 @@ Rules:
   }
 }
 
-// ─── LLM Evening Check-in ───
+// ─── LLM Evening Check-in (Enhanced with Scorecard) ───
 
-export async function llmEveningCheckin(tasks, completedToday = [], profile = {}, calendarEvents = []) {
+export async function llmEveningCheckin(tasks, completedToday = [], profile = {}, calendarEvents = [], scorecard = null) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -396,7 +499,8 @@ export async function llmEveningCheckin(tasks, completedToday = [], profile = {}
       const done = completedToday.some((c) => c.id === t.id);
       const progress = t.multiDayProgress;
       const progressSuffix = progress?.isMultiDay ? ` (${progress.progressLabel})` : "";
-      return `${i + 1}. ${t.title}${progressSuffix} — ${done ? "DONE" : "NOT DONE"}`;
+      const postponed = Number(t.rescheduleCount || 0);
+      return `${i + 1}. ${t.title}${progressSuffix} — ${done ? "DONE" : "NOT DONE"}${!done && postponed >= 3 ? ` (postponed ${postponed}x total)` : ""}`;
     })
     .join("\n");
 
@@ -404,28 +508,58 @@ export async function llmEveningCheckin(tasks, completedToday = [], profile = {}
     .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
     .join("\n");
 
-  const prompt = `Write a brief evening check-in message. Tone: ${tone}.
+  // Build scorecard context
+  let scorecardBlock = "";
+  if (scorecard) {
+    const rate = Math.round((scorecard.completionRate || 0) * 100);
+    scorecardBlock = `\nToday's scorecard: ${rate}% completion (${scorecard.tasksCompleted}/${scorecard.tasksPlanned})`;
+    if (scorecard.streakDays > 0) scorecardBlock += ` | Streak: ${scorecard.streakDays} days`;
+    if (scorecard.deepWorkMinutes > 0) scorecardBlock += ` | Deep work: ${scorecard.deepWorkMinutes}m`;
+    if (scorecard.topAvoidedTask) scorecardBlock += `\nMost avoided: "${scorecard.topAvoidedTask}"`;
+    scorecardBlock += "\n";
+  }
+
+  // Fetch week context for perspective
+  let weekContext = "";
+  if (profile?.userId) {
+    const scorecards = await getRecentScorecards(profile.userId, 7).catch(() => []);
+    if (scorecards.length >= 3) {
+      const avgRate = scorecards.reduce((s, sc) => s + (sc.completion_rate || 0), 0) / scorecards.length;
+      weekContext = `\nWeek average: ${Math.round(avgRate * 100)}% completion\n`;
+    }
+  }
+
+  const completionRate = topTasks.length > 0 ? completedToday.length / topTasks.length : 0;
+  const wasBadDay = completionRate < 0.4 && topTasks.length >= 3;
+  const wasGreatDay = completionRate >= 0.8 && topTasks.length >= 3;
+
+  const prompt = `Write an evening check-in message. Tone: ${tone}.
 
 Today's tasks:
 ${taskBlock || "No tasks were scheduled."}
 
-${completedToday.length} tasks completed today.
+${completedToday.length}/${topTasks.length} tasks completed today.
 ${overdue.length} tasks are overdue.
-${calendarEvents.length > 0 ? `\nToday's calendar:\n${calBlock}\n` : ""}
+${calendarEvents.length > 0 ? `\nToday's calendar:\n${calBlock}\n` : ""}${scorecardBlock}${weekContext}
 Rules:
-- Acknowledge what was completed (celebrate wins)
-- If the day was meeting-heavy, acknowledge it and adjust expectations for task completion
-- For unfinished tasks, ask "done / partial / skipped" for each
-- If tasks were skipped, ask the reason: time issue / avoided / blocked / not needed
-- Ask what the #1 priority for tomorrow should be
-- Keep under 150 words
-- Plain text only, no markdown`;
+${wasBadDay ? `- TODAY WAS A LOW DAY. Don't sugarcoat it. Say something like "Planned ${topTasks.length}, did ${completedToday.length}. What happened?" Ask directly: was it energy, avoidance, or external blockers?
+- Don't be mean, but be honest. This person needs accountability, not comfort.` : wasGreatDay ? `- Great day! Celebrate genuinely. Mention streak if applicable. Keep it brief but warm.` : `- Acknowledge what was done. Be balanced.`}
+- For unfinished tasks: don't just list them — ask if they should be rescheduled, broken down smaller, or dropped
+- If a task has been postponed 3+ times and is still undone, give an ultimatum: "Do it tomorrow, break it into a 10-min version, or archive it. Which one?"
+- Ask: "What's your ONE must-do for tomorrow?"
+- Keep under 160 words
+- Plain text only, no markdown, no emojis
+- Write like a real person, not a bot`;
+
+  const systemPrompt = wasBadDay
+    ? "You are a demanding personal coach doing an end-of-day debrief. Be honest about the low output. Don't scold, but don't pretend it's fine. Help them understand WHY and plan a better tomorrow."
+    : "You are a personal productivity assistant doing an evening review. Be warm when they've done well, and direct when they haven't.";
 
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
-        { role: "system", content: "You are a personal productivity assistant. Be encouraging but honest." },
+        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
     });
@@ -438,7 +572,7 @@ Rules:
 
 // ─── LLM Nudge ───
 
-export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}, calendarEvents = [], behaviorPatterns = null) {
+export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}, calendarEvents = [], behaviorPatterns = null, escalation = null) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
@@ -468,32 +602,69 @@ export async function llmNudge(tasks, messageType = "midday_nudge", profile = {}
     if (lines.length > 0) behaviorBlock = `\nBehavioral patterns detected:\n${lines.join("\n")}\n`;
   }
 
+  // Escalation context
+  let escalationBlock = "";
+  const escalationLevel = escalation?.level || 0;
+  if (escalationLevel >= 2) {
+    escalationBlock = `\nESCALATION LEVEL: ${escalationLevel}/3 — ${escalation.reasons.join("; ")}\n`;
+  }
+
+  // Fetch user insights for context
+  let insightBlock = "";
+  if (profile?.userId && escalationLevel >= 1) {
+    const insights = await getUserInsights(profile.userId).catch(() => []);
+    const relevant = insights.filter((i) => i.category === "weakness" || i.category === "pattern").slice(0, 3);
+    if (relevant.length > 0) {
+      insightBlock = `\nKnown about this person:\n${relevant.map((i) => `- ${i.insight}`).join("\n")}\n`;
+    }
+  }
+
+  // Weekly completion rate for context
+  let weekBlock = "";
+  if (profile?.userId && escalationLevel >= 1) {
+    const scorecards = await getRecentScorecards(profile.userId, 7).catch(() => []);
+    if (scorecards.length >= 3) {
+      const avgRate = scorecards.reduce((s, sc) => s + (sc.completion_rate || 0), 0) / scorecards.length;
+      weekBlock = `\nThis week's completion rate: ${Math.round(avgRate * 100)}%\n`;
+    }
+  }
+
   const progress = target.multiDayProgress;
   const progressLine = progress?.isMultiDay
     ? `\nMulti-day progress: ${progress.progressLabel}, ${progress.remainingMinutes}m total remaining`
     : "";
   const effectiveMinutes = progress?.isMultiDay ? progress.todayAllocatedMinutes : (target.estimatedMinutes || 30);
 
-  const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${tone}.
+  // Determine tone override based on escalation
+  const effectiveTone = escalationLevel >= 2 ? "ruthless" : tone;
+
+  const prompt = `Write a short ${timeOfDay} nudge message. Tone: ${effectiveTone}.
 
 Top pending task: "${target.title}" (${effectiveMinutes}m today)
 Times postponed: ${postponed}
 Total remaining tasks: ${top.length} (${totalLeft}m total)${progressLine}
-${calendarEvents.length > 0 ? `\nUpcoming calendar events:\n${calBlock}\n` : ""}${behaviorBlock}
+${calendarEvents.length > 0 ? `\nUpcoming calendar:\n${calBlock}\n` : ""}${behaviorBlock}${escalationBlock}${insightBlock}${weekBlock}
 Rules:
 - Focus on the #1 task
-- If postponed 2+ times, be more direct about it
-- Suggest a specific time block (e.g. "Start a 20-minute sprint")
-- If there's a meeting coming up soon, suggest a shorter sprint before it or schedule the task after it${behaviorBlock ? "\n- Reference the behavioral pattern naturally (don't lecture, but be direct)" : ""}${progressLine ? "\n- Reference the multi-day progress naturally (e.g., 'session 3 of 6 today')" : ""}
-- ${timeOfDay === "afternoon" ? "Mention that end of day is approaching" : "Encourage starting now"}
-- Keep under 80 words
-- Plain text only`;
+${escalationLevel >= 2 ? `- This person is AVOIDING this task. Be confrontational. Use specific data: "This is day ${postponed} of pushing this off." or "Your completion rate is [X]% — this is why."
+- Don't ask if they want to do it. Tell them to start. Give them a specific 10-minute challenge.
+- Reference their known pattern if relevant.` : escalationLevel >= 1 ? `- Be more direct than usual. They've postponed ${postponed}x. Name the avoidance.
+- Suggest a specific micro-commitment: "Just 10 minutes. Timer on. Go."` : `- If postponed 2+ times, be more direct about it
+- Suggest a specific time block (e.g. "Start a 20-minute sprint")`}
+- If there's a meeting coming up soon, suggest a shorter sprint before it${progressLine ? "\n- Reference the multi-day progress naturally" : ""}
+- ${timeOfDay === "afternoon" ? "Mention that end of day is approaching — create urgency" : "Encourage starting NOW — not later"}
+- Keep under ${escalationLevel >= 2 ? "100" : "80"} words
+- Plain text only, no emojis`;
+
+  const systemPrompt = escalationLevel >= 2
+    ? "You are a demanding personal accountability coach. This person is avoiding their commitments. Be direct, data-driven, and confrontational. No pleasantries."
+    : "You are a personal productivity assistant sending brief WhatsApp nudges. Be direct and actionable.";
 
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
-        { role: "system", content: "You are a personal productivity assistant sending brief WhatsApp nudges. Be direct and actionable." },
+        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
     });
@@ -816,35 +987,48 @@ export async function llmFollowUp(task, calendarEvents = [], profile = {}) {
   const tone = profile.tone || "firm";
   if (!process.env.OPENAI_API_KEY) return null;
 
-  const postponed = Number(task.rescheduleCount || 0);
+  const postponed = Number(task.rescheduleCount || task.reschedule_count || 0);
   const daysSinceCreated = Math.floor(
-    (Date.now() - new Date(task.createdAt || Date.now()).getTime()) / 86400000
+    (Date.now() - new Date(task.createdAt || task.created_at || Date.now()).getTime()) / 86400000
   );
 
   const calBlock = calendarEvents
     .map((e) => `- ${e.time || ""} ${e.summary || e.title}`)
     .join("\n");
 
-  const prompt = `Write a targeted follow-up for a task the user keeps avoiding. Tone: ${tone}.
+  // Determine severity
+  const isChronicAvoidance = postponed >= 5;
+  const estimatedMinutes = task.estimatedMinutes || task.estimate_minutes || 30;
+
+  const prompt = `Write a follow-up for a chronically avoided task. Tone: ${isChronicAvoidance ? "ruthless" : tone}.
 
 Task: "${task.title}"
 Times postponed: ${postponed}
 Days since created: ${daysSinceCreated}
-Estimated time: ${task.estimatedMinutes || 30} minutes
-${calendarEvents.length > 0 ? `\nUpcoming events:\n${calBlock}\n` : ""}
+Estimated time: ${estimatedMinutes} minutes
+Importance: ${task.importance || "unknown"}/5
+${calendarEvents.length > 0 ? `\nNext events:\n${calBlock}\n` : ""}
 Rules:
-- Acknowledge the avoidance pattern without being judgmental
-- Suggest breaking it into a tiny first step (5-10 minutes)
-- If there's a gap before the next meeting, suggest using that window for this task
-- Ask if the task is still relevant (maybe it should be archived)
-- Keep under 60 words
-- Plain text only`;
+${isChronicAvoidance ? `- This has been postponed ${postponed} times over ${daysSinceCreated} days. This is NOT a gentle nudge.
+- Give an ULTIMATUM with exactly 3 options:
+  1. "Do 10 minutes RIGHT NOW" (specific micro-action)
+  2. "Tell me what's blocking you" (so we can break it down)
+  3. "Reply 'archive' and I'll drop it permanently"
+- Make it clear: one of these three must happen TODAY.
+- Be direct: "You've been dodging this for ${daysSinceCreated} days."` : `- Acknowledge the avoidance pattern directly (${postponed}x in ${daysSinceCreated} days)
+- Suggest a 10-minute micro-version of the task
+- If there's a gap before next meeting, name that window
+- End with: "Reply 'done' when you start, or 'archive' if it's dead."`}
+- Keep under ${isChronicAvoidance ? "80" : "60"} words
+- Plain text only, no emojis`;
 
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
-        { role: "system", content: "You are a personal accountability partner. Be firm but empathetic." },
+        { role: "system", content: isChronicAvoidance
+          ? "You are a no-nonsense accountability coach. This person has been avoiding a task for days. Be direct. Give ultimatums. No pleasantries."
+          : "You are a personal accountability partner. Be firm but empathetic." },
         { role: "user", content: prompt },
       ],
     });

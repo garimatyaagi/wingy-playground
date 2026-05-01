@@ -16,6 +16,11 @@ import {
   createLongTermGoal,
   createGoalMilestone,
   getSupabaseAdmin,
+  saveDailyScorecard,
+  getDailyScorecard,
+  getRecentScorecards,
+  upsertUserInsight,
+  getUserInsights,
 } from "./_store.js";
 import { llmParseMessage, llmDecomposeGoal } from "./_llm.js";
 import { buildOptimizedSchedule, formatScheduleForBrief } from "./_optimizer.js";
@@ -1617,4 +1622,278 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
   }
 
   return { generated, existing: [], goals: goals.length };
+}
+
+// ─── Daily Scorecard Computation ───
+
+export async function computeDailyScorecard(userId, dateKey, planState) {
+  const scored = planState?.scoredTasks || [];
+  const top = planState?.topPriorities || [];
+
+  const completedToday = scored.filter(
+    (t) => t.done && t.completedAt && t.completedAt.startsWith(dateKey)
+  );
+  const postponedToday = scored.filter(
+    (t) => !t.done && Number(t.rescheduleCount || 0) > 0
+  );
+
+  const tasksPlanned = top.length;
+  const tasksCompleted = completedToday.length;
+  const tasksPostponed = postponedToday.length;
+  const completionRate = tasksPlanned > 0 ? tasksCompleted / tasksPlanned : 0;
+
+  // Minutes by effort type
+  let deepWorkMinutes = 0;
+  let adminMinutes = 0;
+  let healthMinutes = 0;
+  let totalFocusMinutes = 0;
+
+  for (const task of completedToday) {
+    const mins = task.actualMinutes || task.estimatedMinutes || 30;
+    totalFocusMinutes += mins;
+    const effort = task.effortType || "deep_work";
+    if (effort === "deep_work" || effort === "learning") deepWorkMinutes += mins;
+    else if (effort === "admin" || effort === "errand") adminMinutes += mins;
+    else if (effort === "health") healthMinutes += mins;
+  }
+
+  // Identify avoidance types - effort types that had tasks but none completed
+  const avoidanceTypes = [];
+  const effortGroups = {};
+  for (const task of top) {
+    const effort = task.effortType || "deep_work";
+    if (!effortGroups[effort]) effortGroups[effort] = { total: 0, done: 0 };
+    effortGroups[effort].total++;
+    if (task.done) effortGroups[effort].done++;
+  }
+  for (const [effort, counts] of Object.entries(effortGroups)) {
+    if (counts.total > 0 && counts.done === 0) avoidanceTypes.push(effort);
+  }
+
+  // Top avoided task - highest importance that wasn't done
+  const topAvoided = postponedToday
+    .sort((a, b) => (Number(b.importance || 0) - Number(a.importance || 0)) || (Number(b.rescheduleCount || 0) - Number(a.rescheduleCount || 0)))
+    [0];
+
+  // Streak calculation - fetch previous day's scorecard
+  const yesterday = new Date(dateKey);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toISOString().split("T")[0];
+  const yesterdayScorecard = await getDailyScorecard(userId, yesterdayKey);
+  const previousStreak = yesterdayScorecard?.streak_days || 0;
+  const streakDays = completionRate >= 0.6 ? previousStreak + 1 : 0;
+
+  const scorecard = {
+    tasksPlanned,
+    tasksCompleted,
+    tasksPostponed,
+    deepWorkMinutes,
+    adminMinutes,
+    healthMinutes,
+    totalFocusMinutes,
+    completionRate: Math.round(completionRate * 100) / 100,
+    avoidanceTypes,
+    topAvoidedTask: topAvoided?.title || null,
+    streakDays,
+    energyUtilization: 0, // TODO: compute from optimizer data
+  };
+
+  const saved = await saveDailyScorecard(userId, dateKey, scorecard);
+  return { ...scorecard, saved: Boolean(saved) };
+}
+
+// ─── Day Analysis & Insight Generation ───
+
+export async function analyzeDay(userId, dateKey, planState) {
+  const scorecard = await getDailyScorecard(userId, dateKey);
+  if (!scorecard) return { insights: [] };
+
+  const recentScorecards = await getRecentScorecards(userId, 14);
+  const insights = [];
+
+  // Pattern: Consistent avoidance of specific effort types
+  if (recentScorecards.length >= 3) {
+    const avoidanceCounts = {};
+    for (const sc of recentScorecards) {
+      for (const type of (sc.avoidance_types || [])) {
+        avoidanceCounts[type] = (avoidanceCounts[type] || 0) + 1;
+      }
+    }
+    for (const [type, count] of Object.entries(avoidanceCounts)) {
+      if (count >= 3) {
+        await upsertUserInsight(userId, "weakness", `Consistently avoids ${type} tasks (${count}/${recentScorecards.length} days)`, {
+          date: dateKey,
+          event: `avoided_${type}`,
+          count,
+        });
+        insights.push({ category: "weakness", insight: `avoids_${type}`, count });
+      }
+    }
+  }
+
+  // Pattern: Low completion rate trend
+  if (recentScorecards.length >= 5) {
+    const recentRates = recentScorecards.slice(0, 5).map((sc) => sc.completion_rate || 0);
+    const avgRate = recentRates.reduce((s, r) => s + r, 0) / recentRates.length;
+    if (avgRate < 0.4) {
+      await upsertUserInsight(userId, "pattern", `Low completion rate trending (avg ${Math.round(avgRate * 100)}% over last 5 days)`, {
+        date: dateKey,
+        event: "low_completion_trend",
+        avgRate,
+      });
+      insights.push({ category: "pattern", insight: "low_completion_trend", avgRate });
+    }
+    if (avgRate > 0.8) {
+      await upsertUserInsight(userId, "strength", `High consistency — averaging ${Math.round(avgRate * 100)}% completion over last 5 days`, {
+        date: dateKey,
+        event: "high_completion_trend",
+        avgRate,
+      });
+      insights.push({ category: "strength", insight: "high_completion_trend", avgRate });
+    }
+  }
+
+  // Pattern: Deep work vs admin balance
+  if (recentScorecards.length >= 5) {
+    const totalDeep = recentScorecards.slice(0, 5).reduce((s, sc) => s + (sc.deep_work_minutes || 0), 0);
+    const totalAdmin = recentScorecards.slice(0, 5).reduce((s, sc) => s + (sc.admin_minutes || 0), 0);
+    if (totalAdmin > totalDeep * 2 && totalAdmin > 60) {
+      await upsertUserInsight(userId, "pattern", `Admin-heavy pattern: ${totalAdmin}m admin vs ${totalDeep}m deep work over 5 days`, {
+        date: dateKey,
+        event: "admin_heavy",
+        totalAdmin,
+        totalDeep,
+      });
+      insights.push({ category: "pattern", insight: "admin_heavy" });
+    }
+  }
+
+  // Pattern: Streak tracking
+  if (scorecard.streak_days >= 3) {
+    await upsertUserInsight(userId, "strength", `Consistent execution streak (${scorecard.streak_days} days above 60%)`, {
+      date: dateKey,
+      event: "streak",
+      days: scorecard.streak_days,
+    });
+    insights.push({ category: "strength", insight: "streak", days: scorecard.streak_days });
+  }
+
+  // Pattern: Specific task chronic avoidance
+  const scored = planState?.scoredTasks || [];
+  const chronicAvoiders = scored.filter((t) => Number(t.rescheduleCount || 0) >= 4 && !t.done);
+  for (const task of chronicAvoiders.slice(0, 3)) {
+    await upsertUserInsight(userId, "trigger", `Chronically avoids: "${task.title}" (postponed ${task.rescheduleCount}x)`, {
+      date: dateKey,
+      event: "chronic_avoidance",
+      taskTitle: task.title,
+      rescheduleCount: task.rescheduleCount,
+    });
+    insights.push({ category: "trigger", insight: "chronic_avoidance", task: task.title });
+  }
+
+  return { insights, scorecard };
+}
+
+// ─── Build Rich Context for Morning Brief ───
+
+export async function buildMorningBriefContext({ userId, date, planState, calendarEvents, profile }) {
+  const dateKey = date instanceof Date ? date.toISOString().split("T")[0] : String(date).split("T")[0];
+
+  // Yesterday's scorecard
+  const yesterday = new Date(dateKey);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toISOString().split("T")[0];
+  const yesterdayScorecard = await getDailyScorecard(userId, yesterdayKey);
+
+  // This week's scorecards
+  const weekScorecards = await getRecentScorecards(userId, 7);
+  const weekCompletionRate = weekScorecards.length > 0
+    ? weekScorecards.reduce((s, sc) => s + (sc.completion_rate || 0), 0) / weekScorecards.length
+    : null;
+  const currentStreak = weekScorecards[0]?.streak_days || 0;
+
+  // User insights (patterns, weaknesses, strengths)
+  const allInsights = await getUserInsights(userId);
+  const weaknesses = allInsights.filter((i) => i.category === "weakness" && i.confidence >= 0.5);
+  const strengths = allInsights.filter((i) => i.category === "strength" && i.confidence >= 0.5);
+  const patterns = allInsights.filter((i) => i.category === "pattern" && i.confidence >= 0.5);
+  const triggers = allInsights.filter((i) => i.category === "trigger" && i.confidence >= 0.5);
+
+  // Core memory (user facts)
+  const coreMemory = await getCoreMemory(userId);
+
+  // Goal progress
+  const goals = await listActiveLongTermGoals(userId);
+  const goalProgress = [];
+  for (const goal of goals.slice(0, 5)) {
+    const stats = await countGoalTaskCompletions(userId, goal.id, 7);
+    goalProgress.push({
+      title: goal.title,
+      weeklyRate: stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : null,
+      weeklyCompleted: stats.completed,
+      weeklyTotal: stats.total,
+      priority: goal.priority,
+      targetDate: goal.target_date,
+    });
+  }
+
+  // Stalling goals (no completions in 7+ days)
+  const stallingGoals = goalProgress.filter((g) => g.weeklyCompleted === 0 && g.weeklyTotal === 0);
+
+  // Overdue & chronically avoided tasks
+  const topPriorities = planState?.topPriorities || [];
+  const chronicAvoiders = topPriorities.filter((t) => Number(t.rescheduleCount || 0) >= 3);
+
+  // Calendar density
+  const eventCount = (calendarEvents || []).length;
+  const calendarDensity = eventCount === 0 ? "open" : eventCount <= 3 ? "moderate" : "packed";
+
+  // Free time calculation (rough)
+  const workdayStart = profile?.workdayStart || "09:00";
+  const workdayEnd = profile?.workdayEnd || "18:00";
+  const workMinutes = (parseInt(workdayEnd) - parseInt(workdayStart)) * 60 || 540;
+  const calendarMinutes = (calendarEvents || []).reduce((s, e) => {
+    if (e.durationMinutes) return s + e.durationMinutes;
+    if (e.start && e.end) {
+      return s + Math.max(0, (new Date(e.end) - new Date(e.start)) / 60000);
+    }
+    return s + 60; // default 1h per event
+  }, 0);
+  const freeMinutes = Math.max(0, workMinutes - calendarMinutes);
+  const taskMinutes = topPriorities.reduce((s, t) => s + (t.estimatedMinutes || 30), 0);
+
+  return {
+    yesterdayScorecard: yesterdayScorecard ? {
+      completionRate: yesterdayScorecard.completion_rate,
+      tasksCompleted: yesterdayScorecard.tasks_completed,
+      tasksPlanned: yesterdayScorecard.tasks_planned,
+      tasksPostponed: yesterdayScorecard.tasks_postponed,
+      deepWorkMinutes: yesterdayScorecard.deep_work_minutes,
+      topAvoidedTask: yesterdayScorecard.top_avoided_task,
+      streakDays: yesterdayScorecard.streak_days,
+    } : null,
+    weekStats: {
+      avgCompletionRate: weekCompletionRate,
+      daysTracked: weekScorecards.length,
+      currentStreak,
+    },
+    userProfile: {
+      weaknesses: weaknesses.map((w) => w.insight),
+      strengths: strengths.map((s) => s.insight),
+      patterns: patterns.map((p) => p.insight),
+      triggers: triggers.map((t) => t.insight),
+    },
+    coreMemory: coreMemory.map((m) => ({ key: m.key, value: m.value })),
+    goalProgress,
+    stallingGoals,
+    chronicAvoiders: chronicAvoiders.map((t) => ({
+      title: t.title,
+      rescheduleCount: t.rescheduleCount,
+      importance: t.importance,
+    })),
+    calendarDensity,
+    freeMinutes,
+    taskMinutes,
+    isEmptyDay: topPriorities.length <= 1 && freeMinutes > 240,
+  };
 }

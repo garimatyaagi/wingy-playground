@@ -1553,3 +1553,153 @@ export async function countGoalTaskCompletions(userId, goalId, sinceDaysAgo = 7)
     completed: rows.filter((r) => r.done || r.status === "done").length,
   };
 }
+
+// ─── Daily Scorecards ───
+
+export async function saveDailyScorecard(userId, dateKey, scorecard) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const row = {
+    user_id: userId,
+    date: dateKey,
+    tasks_planned: scorecard.tasksPlanned || 0,
+    tasks_completed: scorecard.tasksCompleted || 0,
+    tasks_postponed: scorecard.tasksPostponed || 0,
+    deep_work_minutes: scorecard.deepWorkMinutes || 0,
+    admin_minutes: scorecard.adminMinutes || 0,
+    health_minutes: scorecard.healthMinutes || 0,
+    total_focus_minutes: scorecard.totalFocusMinutes || 0,
+    completion_rate: scorecard.completionRate || 0,
+    avoidance_types: scorecard.avoidanceTypes || [],
+    top_avoided_task: scorecard.topAvoidedTask || null,
+    streak_days: scorecard.streakDays || 0,
+    energy_utilization: scorecard.energyUtilization || 0,
+  };
+  const { data, error } = await supabase
+    .from("agent_daily_scorecards")
+    .upsert(row, { onConflict: "user_id,date" })
+    .select()
+    .single();
+  if (error) {
+    if (!isMissingTable(error)) console.error("saveDailyScorecard failed", { error, userId, dateKey });
+    return null;
+  }
+  return data;
+}
+
+export async function getDailyScorecard(userId, dateKey) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+  const { data, error } = await supabase
+    .from("agent_daily_scorecards")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("date", dateKey)
+    .maybeSingle();
+  if (error) {
+    if (!isMissingTable(error)) console.error("getDailyScorecard failed", { error });
+    return null;
+  }
+  return data;
+}
+
+export async function getRecentScorecards(userId, days = 7) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  const since = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("agent_daily_scorecards")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("date", since)
+    .order("date", { ascending: false });
+  if (error) {
+    if (!isMissingTable(error)) console.error("getRecentScorecards failed", { error });
+    return [];
+  }
+  return data || [];
+}
+
+// ─── User Insights ───
+
+export async function upsertUserInsight(userId, category, insight, evidence = null) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return null;
+
+  // Check for existing insight with same category and similar text
+  const { data: existing } = await supabase
+    .from("agent_user_insights")
+    .select("id, evidence, confidence")
+    .eq("user_id", userId)
+    .eq("category", category)
+    .eq("insight", insight)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (existing) {
+    // Update confidence and add evidence
+    const currentEvidence = Array.isArray(existing.evidence) ? existing.evidence : [];
+    const newEvidence = evidence ? [...currentEvidence, evidence].slice(-20) : currentEvidence;
+    const newConfidence = Math.min(1, (existing.confidence || 0.5) + 0.1);
+    const { data, error } = await supabase
+      .from("agent_user_insights")
+      .update({
+        evidence: newEvidence,
+        confidence: newConfidence,
+        last_confirmed: new Date().toISOString().split("T")[0],
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (error) console.error("upsertUserInsight update failed", { error });
+    return data;
+  }
+
+  // Create new insight
+  const { data, error } = await supabase
+    .from("agent_user_insights")
+    .insert({
+      user_id: userId,
+      category,
+      insight,
+      evidence: evidence ? [evidence] : [],
+      confidence: 0.5,
+      first_observed: new Date().toISOString().split("T")[0],
+      last_confirmed: new Date().toISOString().split("T")[0],
+    })
+    .select()
+    .single();
+  if (error) {
+    if (!isMissingTable(error)) console.error("upsertUserInsight insert failed", { error });
+    return null;
+  }
+  return data;
+}
+
+export async function getUserInsights(userId, category = null) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !userId) return [];
+  let query = supabase
+    .from("agent_user_insights")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("confidence", { ascending: false });
+  if (category) query = query.eq("category", category);
+  const { data, error } = await query;
+  if (error) {
+    if (!isMissingTable(error)) console.error("getUserInsights failed", { error });
+    return [];
+  }
+  return data || [];
+}
+
+export async function deactivateInsight(insightId) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  await supabase
+    .from("agent_user_insights")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", insightId);
+}

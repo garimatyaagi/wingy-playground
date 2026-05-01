@@ -1636,139 +1636,231 @@ select {
   gap: 8px;
 }
 
-.branchDrilldownIcon {
-  font-size: 24px;
-}
-
-.branchTreeWrap {
-  padding: 4px 0;
-}
-
-.branchGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  position: relative;
-  padding: 28px 0;
-}
-
-/* Central trunk line */
-.branchGrid::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(26, 26, 46, 0.08) 15%,
-    rgba(49, 57, 251, 0.15) 50%,
-    rgba(26, 26, 46, 0.08) 85%,
-    transparent
-  );
-  transform: translateX(-50%);
-  border-radius: 2px;
-}
-
-.branchCard {
-  all: unset;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 20px 12px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  cursor: pointer;
-  text-align: center;
-  position: relative;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-.branchCard:hover {
-  transform: scale(1.03);
-  box-shadow: 0 4px 20px rgba(26, 26, 46, 0.08);
-  border-color: var(--branch-color, var(--accent));
-}
-
-.branchCard:active {
-  transform: scale(0.98);
-}
-
-/* Connector lines from trunk to cards */
-.branchCard::before {
-  content: "";
-  position: absolute;
-  top: 50%;
+.branchDrilldownDot {
   width: 10px;
-  height: 2px;
-  background: rgba(26, 26, 46, 0.1);
-}
-
-.branchCard:nth-child(odd)::before {
-  right: -12px;
-}
-
-.branchCard:nth-child(even)::before {
-  left: -12px;
-}
-
-/* Progress ring */
-.branchProgressRing {
-  width: 56px;
-  height: 56px;
+  height: 10px;
   border-radius: 50%;
-  background: conic-gradient(
-    var(--branch-color, var(--accent)) calc(var(--progress) * 1%),
-    rgba(26, 26, 46, 0.06) 0
-  );
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.branchProgressRing::after {
-  content: "";
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--surface);
-}
-
-.branchIcon {
-  position: absolute;
-  font-size: 20px;
-  z-index: 1;
-  line-height: 1;
-}
-
-.branchLabel {
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-  letter-spacing: -0.01em;
-}
-
-.branchGoalCount {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 500;
-}
-
-.branchPct {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--branch-color, var(--accent));
+  flex-shrink: 0;
 }
 
 .branchPicker {
   margin-left: auto;
   font-size: 12px;
   max-width: 140px;
+}
+
+/* ─── Branch Tree ─── */
+
+.branchTree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+}
+
+/* Root node container */
+.treeRoot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Shared node styles */
+.treeNode {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  white-space: nowrap;
+}
+
+.treeNode:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(26, 26, 46, 0.07);
+}
+
+.treeNode:active {
+  transform: scale(0.97);
+}
+
+/* Root node */
+.treeNodeRoot {
+  padding: 12px 20px;
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(49, 57, 251, 0.04), rgba(49, 57, 251, 0.01));
+  border-radius: var(--radius-xl);
+}
+
+.treeNodeRoot .treeNodeLabel {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Branch nodes */
+.treeNodeBranch {
+  border-color: var(--branch-color, var(--border-strong));
+  border-left: 3px solid var(--branch-color, var(--accent));
+}
+
+.treeNodeBranch:hover {
+  border-color: var(--branch-color, var(--accent));
+}
+
+.treeNodeExpanded {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--branch-color) 6%, var(--surface)),
+    var(--surface)
+  );
+}
+
+/* Goal leaf nodes */
+.treeNodeGoal {
+  padding: 8px 14px;
+  border-color: var(--border);
+  border-left: 3px solid color-mix(in srgb, var(--branch-color) 40%, transparent);
+  font-size: 14px;
+}
+
+.treeNodeGoal:hover {
+  border-color: var(--branch-color, var(--accent));
+}
+
+/* Node content */
+.treeNodeDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--branch-color, var(--accent));
+}
+
+.treeNodeLabel {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.treeNodeMeta {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.treeNodePct {
+  font-weight: 700;
+}
+
+/* Tree connector lines */
+.treeChildren {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  padding-left: 24px;
+  width: 100%;
+}
+
+/* Vertical trunk line for children */
+.treeChildren::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 14px;
+  width: 1.5px;
+  background: rgba(26, 26, 46, 0.1);
+  border-radius: 1px;
+}
+
+/* Root-level children — full width */
+.treeChildrenRoot {
+  padding-left: 20px;
+  margin-top: 0;
+}
+
+.treeChildrenRoot::before {
+  left: 7px;
+}
+
+/* Each tree item */
+.treeItem {
+  position: relative;
+  padding: 6px 0;
+}
+
+/* Horizontal connector from trunk to node */
+.treeItem::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  top: 24px;
+  width: 13px;
+  height: 1.5px;
+  background: rgba(26, 26, 46, 0.1);
+}
+
+.treeChildrenRoot > .treeItem::before {
+  left: -13px;
+  width: 13px;
+}
+
+/* Dot on the trunk at branch point */
+.treeItem::after {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 21px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.5px solid rgba(26, 26, 46, 0.15);
+}
+
+.treeChildrenRoot > .treeItem::after {
+  left: -16px;
+}
+
+/* Color the dots for branch items */
+.treeNodeBranch ~ .treeChildren .treeItem::after,
+.treeItem:has(> .treeNodeBranch)::after {
+  border-color: var(--branch-color, rgba(26, 26, 46, 0.15));
+}
+
+/* Last item — cut the vertical line */
+.treeItem:last-child::before {
+  /* Keep horizontal connector */
+}
+
+/* Nested children (goals under a branch) */
+.treeItem > .treeChildren {
+  padding-left: 20px;
+  margin-top: 0;
+}
+
+.treeItem > .treeChildren::before {
+  left: 7px;
+  top: 0;
+  bottom: 10px;
+  background: color-mix(in srgb, var(--branch-color, rgba(26, 26, 46, 0.1)) 30%, transparent);
 }
 
 /* ─── Goals Accordion ─── */

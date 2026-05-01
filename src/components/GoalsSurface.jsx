@@ -144,7 +144,7 @@ function GoalAccordion({
               >
                 <option value="">Uncategorized</option>
                 {LIFE_BRANCHES.map((b) => (
-                  <option key={b.id} value={b.id}>{b.icon} {b.label}</option>
+                  <option key={b.id} value={b.id}>{b.label}</option>
                 ))}
               </select>
             ) : null}
@@ -310,7 +310,7 @@ export default function GoalsSurface({
                   &#8592; All Branches
                 </button>
                 <h2 className="branchDrilldownTitle">
-                  <span className="branchDrilldownIcon">{activeBranch.icon}</span>
+                  <span className="branchDrilldownDot" style={{ background: activeBranch.color }} />
                   {activeBranch.label}
                 </h2>
               </>
@@ -363,6 +363,7 @@ export default function GoalsSurface({
         <GoalBranchesView
           goals={goals}
           onSelectBranch={(branchId) => { setSelectedBranch(branchId); setExpandedId(null); }}
+          onSelectGoal={(branchId, goalId) => { setSelectedBranch(branchId); setExpandedId(goalId); }}
         />
       ) : (
         <div className="goalAccordionList">

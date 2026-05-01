@@ -124,6 +124,7 @@ export default async function handler(req, res) {
   const report = [];
 
   for (const profile of profiles) {
+   try {
     if (!profile.autoplanEnabled) continue;
     // Skip users whose bot is paused
     const pausedUntil = await getBotPauseStatus(profile.userId);
@@ -284,6 +285,10 @@ export default async function handler(req, res) {
     }
 
     report.push(profileReport);
+   } catch (err) {
+    console.error("user_processing_failed", { userId: profile.userId, error: err.message, stack: err.stack });
+    report.push({ userId: profile.userId, error: err.message });
+   }
   }
 
   // ─── Process Pending Pulses ───

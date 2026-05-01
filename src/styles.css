@@ -34,6 +34,29 @@
   --space-2xl: 180px;
   --transition-fast: 150ms ease;
   --ease-premium: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+  --accent-deep: #1E0A96;
+  --footer-bg: #0D0B2E;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgba(49, 57, 251, 0.25);
+  color: #1A1A2E;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@keyframes phoneFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
 }
 
 html,
@@ -2574,36 +2597,17 @@ select {
   overflow-x: hidden;
 }
 
-/* Noise texture — gives matte/grain feel to colored sections */
+/* Noise texture — real grain for matte paper finish */
 .noiseOverlay {
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  background-image: url("/noise.png");
+  background-repeat: repeat;
   background-size: 200px 200px;
+  opacity: 0.10;
+  mix-blend-mode: overlay;
   pointer-events: none;
   z-index: 1;
-}
-
-/* Wavy section dividers */
-.waveDivider {
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  line-height: 0;
-}
-
-.waveDivider svg {
-  display: block;
-  width: 100%;
-  height: 48px;
-}
-
-.waveDividerFlip {
-  transform: scaleY(-1);
-  top: -1px;
-  bottom: auto;
 }
 
 /* ─── Nav ─── */
@@ -2616,7 +2620,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 32px;
+  padding: 20px 40px;
   transition: all 0.4s ease;
 }
 
@@ -2624,55 +2628,37 @@ select {
   background: rgba(255, 252, 236, 0.88);
   backdrop-filter: blur(20px) saturate(1.5);
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 0 rgba(26, 26, 46, 0.06);
 }
 
-.landingNav.heroNav .navLogo,
-.landingNav.heroNav .navLink,
-.landingNav.heroNav .navMobileToggle {
-  color: rgba(255, 255, 255, 0.85);
+.landingNav.heroNav .navLogo {
+  color: rgba(255, 255, 255, 0.7);
 }
-
-.landingNav.heroNav .navLink:hover { color: #FFFFFF; }
 
 .landingNav.heroNav .navCta {
   color: #FFFFFF;
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .landingNav.heroNav .navCta:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .navLogo {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text);
   text-decoration: none;
 }
 
-.navLinks {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-}
-
-.navLink {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.navLink:hover { color: var(--text); }
-
 .navCta {
+  font-family: var(--font-body);
   font-size: 13px;
-  padding: 8px 18px;
-  font-weight: 600;
+  padding: 10px 20px;
+  font-weight: 500;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
   background: none;
@@ -2681,60 +2667,63 @@ select {
   transition: all 0.15s ease;
 }
 
-.navCta:hover { background: rgba(0, 0, 0, 0.04); }
+.navCta:hover { background: rgba(0, 0, 0, 0.03); }
 
-.navMobileToggle {
-  display: none;
-  border: none;
-  background: none;
-  cursor: pointer;
-  padding: 8px;
-  font-size: 22px;
-}
-
-/* ─── Hero (flat blue + noise = matte) ─── */
+/* ─── Hero ─── */
 .landingHero {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 100px 48px 120px;
+  padding: 160px 48px 100px;
   position: relative;
   overflow: hidden;
   background: #3139FB;
+  text-align: center;
 }
 
 .heroInner {
   position: relative;
   z-index: 2;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 72px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  max-width: 1100px;
+  max-width: 800px;
   width: 100%;
+  gap: 56px;
 }
 
 .heroText {
-  max-width: 520px;
+  max-width: 640px;
+}
+
+.heroLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 24px;
 }
 
 .heroText h1 {
-  font-family: var(--font-display);
-  font-size: clamp(38px, 5vw, 64px);
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  font-family: var(--font-serif);
+  font-size: clamp(48px, 7vw, 80px);
+  font-weight: 400;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
   color: #FFFFFF;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .heroSub {
-  font-size: 17px;
-  line-height: 1.65;
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1.6;
   color: rgba(255, 255, 255, 0.55);
-  margin-bottom: 32px;
-  max-width: 40ch;
+  margin: 0 auto 36px;
+  max-width: 38ch;
 }
 
 .heroBtn {
@@ -2745,106 +2734,71 @@ select {
   padding: 14px 28px;
   font-size: 15px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 8px;
   text-decoration: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .heroBtn:hover {
-  transform: scale(1.04);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
 }
 
-.heroBtn:active { transform: scale(0.98); }
+.heroBtn:active { transform: translateY(0); }
 
 .heroPhone {
   flex-shrink: 0;
   position: relative;
   z-index: 2;
+  animation: phoneFloat 4s ease-in-out infinite;
 }
 
-/* ─── How it works (warm cream section) ─── */
-.landingHow {
+/* ─── Statements ─── */
+.landingStatements {
   position: relative;
-  padding: 5rem 48px 7rem;
+  padding: 10rem 48px 12rem;
   background: #FFFCEC;
+  text-align: center;
 }
 
-.howInner {
-  max-width: 760px;
+.statementsInner {
+  position: relative;
+  z-index: 2;
+  max-width: 680px;
   margin: 0 auto;
-}
-
-.howInner > div > h2 {
-  font-family: var(--font-display);
-  font-size: clamp(26px, 4vw, 42px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  color: var(--text);
-  margin-bottom: 3.5rem;
-}
-
-.howSteps {
   display: flex;
   flex-direction: column;
+  gap: 5rem;
 }
 
-.howStep {
-  display: grid;
-  grid-template-columns: 40px 1fr;
-  gap: 20px;
-  padding: 28px 0;
-  border-top: 1px solid rgba(26, 26, 46, 0.08);
+.statementLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 16px;
 }
 
-.howStep:last-child {
-  border-bottom: 1px solid rgba(26, 26, 46, 0.08);
-}
-
-.howNum {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--accent);
-  padding-top: 1px;
-}
-
-.howBody h3 {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  margin-bottom: 6px;
-  color: var(--text);
-}
-
-.howBody p {
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--text-secondary);
-}
-
-/* ─── Demo (soft blue-gray section) ─── */
-.landingDemo {
-  position: relative;
-  padding: 5rem 48px 7rem;
-  text-align: center;
-  background: #E0E0F7;
-}
-
-.landingDemo > div > h2 {
-  font-family: var(--font-display);
-  font-size: clamp(26px, 4vw, 42px);
-  font-weight: 700;
+.statementHeading {
+  font-family: var(--font-serif);
+  font-size: clamp(28px, 4.5vw, 44px);
+  font-weight: 400;
   letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.05;
   color: var(--text);
-  margin-bottom: 3rem;
+  margin-bottom: 12px;
 }
 
-.demoPhone {
-  display: flex;
-  justify-content: center;
+.statementBody {
+  font-family: var(--font-body);
+  font-weight: 300;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 44ch;
+  margin: 0 auto;
 }
 
 /* ─── Phone Mockup ─── */
@@ -2853,7 +2807,7 @@ select {
   border-radius: 36px;
   background: #111b21;
   padding: 10px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 .phoneScreen {
@@ -2932,24 +2886,24 @@ select {
   margin-top: 4px;
 }
 
-/* ─── CTA (blue block, textured) ─── */
+/* ─── CTA ─── */
 .landingCta {
   position: relative;
-  padding: 7rem 48px 9rem;
+  padding: 10rem 48px 12rem;
   text-align: center;
-  background: #3139FB;
+  background: var(--accent-deep);
 }
 
 .landingCta h2 {
   position: relative;
   z-index: 2;
-  font-family: var(--font-display);
-  font-size: clamp(26px, 4vw, 42px);
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 400;
   letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.0;
   color: #FFFFFF;
-  margin-bottom: 28px;
+  margin-bottom: 36px;
 }
 
 .ctaBtn {
@@ -2958,27 +2912,27 @@ select {
   display: inline-flex;
   align-items: center;
   background: #FFFFFF;
-  color: #3139FB;
+  color: var(--accent-deep);
   padding: 14px 28px;
   font-size: 15px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 8px;
   text-decoration: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .ctaBtn:hover {
-  transform: scale(1.04);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
 }
 
-.ctaBtn:active { transform: scale(0.98); }
+.ctaBtn:active { transform: translateY(0); }
 
-/* ─── Footer (dark blue) ─── */
+/* ─── Footer ─── */
 .landingFooter {
   position: relative;
-  padding: 36px 48px;
-  background: #2702C2;
+  padding: 40px 48px;
+  background: var(--footer-bg);
 }
 
 .footerInner {
@@ -2992,10 +2946,12 @@ select {
 }
 
 .footerBrand {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .footerLinks {
@@ -3005,66 +2961,43 @@ select {
 
 .footerLinks a {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.3);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
-.footerLinks a:hover { color: rgba(255, 255, 255, 0.8); }
+.footerLinks a:hover { color: rgba(255, 255, 255, 0.7); }
 
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
-  .landingNav { padding: 14px 20px; }
-  .navLinks { display: none; }
-  .navMobileToggle { display: block; }
-
-  .heroInner {
-    grid-template-columns: 1fr;
-    gap: 48px;
-    text-align: center;
-  }
-
-  .heroText { max-width: 100%; }
-  .heroSub { max-width: 100%; }
-
-  .heroPhone {
-    display: flex;
-    justify-content: center;
-  }
+  .landingNav { padding: 16px 20px; }
 }
 
 @media (max-width: 640px) {
-  .landingHero { padding: 100px 20px 100px; }
+  .landingHero { padding: 120px 20px 80px; }
 
   .heroText h1 {
-    font-size: clamp(30px, 8.5vw, 44px);
+    font-size: clamp(36px, 9vw, 52px);
   }
 
-  .heroSub { font-size: 15px; }
+  .heroSub { font-size: 16px; }
 
   .phoneMockup { width: 270px; }
 
-  .waveDivider svg { height: 32px; }
+  .landingStatements { padding: 6rem 20px 8rem; }
+  .statementsInner { gap: 3.5rem; }
 
-  .landingHow { padding: 3.5rem 20px 5rem; }
-  .landingDemo { padding: 3.5rem 20px 5rem; }
-  .landingCta { padding: 4rem 20px 6rem; }
-  .landingFooter { padding: 28px 20px; }
-
-  .howStep {
-    grid-template-columns: 28px 1fr;
-    gap: 14px;
-    padding: 22px 0;
+  .statementHeading {
+    font-size: clamp(24px, 7vw, 36px);
   }
 
-  .howInner > div > h2,
-  .landingDemo > div > h2,
+  .landingCta { padding: 6rem 20px 8rem; }
   .landingCta h2 {
-    font-size: clamp(22px, 6.5vw, 32px);
+    font-size: clamp(26px, 7vw, 40px);
   }
-
   .landingCta h2 br { display: none; }
 
+  .landingFooter { padding: 28px 20px; }
   .footerInner {
     flex-direction: column;
     gap: 14px;

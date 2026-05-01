@@ -2856,6 +2856,177 @@ select {
   align-items: center;
 }
 
+/* ── Timeline / time blocks ─── */
+
+.calendarTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.calendarTimeBlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.calendarTimeBlock:hover {
+  background: var(--surface-soft);
+}
+
+.calendarTimeBlock.done {
+  opacity: 0.5;
+}
+
+.calendarTimeBlock.gcalEvent {
+  cursor: default;
+}
+
+.calendarTimeBlockTime {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 58px;
+  flex-shrink: 0;
+}
+
+.calendarTimeStart {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.calendarTimeEnd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+}
+
+.calendarTimeBlockBar {
+  width: 3px;
+  min-height: 36px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.calendarTimeBlockContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.calendarTimeBlockTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendarTimeBlockTitle {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendarTimeBlock.done .calendarTimeBlockTitle {
+  text-decoration: line-through;
+}
+
+.calendarTimeBlockMeta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Priority tier badges ─── */
+
+.calendarTierBadge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.calendarTierBadge.small {
+  font-size: 0.5rem;
+  padding: 1px 4px;
+}
+
+.tierFixed {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8B5CF6;
+}
+
+.tierP1 {
+  background: rgba(220, 38, 38, 0.12);
+  color: #DC2626;
+}
+
+.tierP2 {
+  background: rgba(245, 158, 11, 0.12);
+  color: #D97706;
+}
+
+.tierP3 {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+}
+
+/* ── Unscheduled section ─── */
+
+.calendarUntimedSection {
+  margin-top: 8px;
+}
+
+.calendarUntimedLabel {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  padding: 0 12px 6px;
+  display: block;
+}
+
+/* ── Auto-schedule button area ─── */
+
+.calendarDayDetailActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendarLoadingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: calPulse 1s ease-in-out infinite;
+}
+
+@keyframes calPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
 /* Night mode overrides */
 .nightMode .calendarGrid {
   background: rgba(234, 238, 242, 0.06);
@@ -2873,6 +3044,11 @@ select {
 .nightMode .calendarDayDetail {
   border-color: rgba(234, 238, 242, 0.08);
 }
+
+.nightMode .tierFixed { background: rgba(139, 92, 246, 0.2); color: #A78BFA; }
+.nightMode .tierP1 { background: rgba(220, 38, 38, 0.15); color: #F87171; }
+.nightMode .tierP2 { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
+.nightMode .tierP3 { background: rgba(107, 114, 128, 0.15); color: #9CA3AF; }
 
 /* Mobile responsive */
 @media (max-width: 600px) {

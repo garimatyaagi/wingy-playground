@@ -2051,8 +2051,12 @@ export default function App() {
   }
 
   // ─── Calendar: fetch Google Calendar events for a month ───
-  async function fetchCalendarEvents(startDate, endDate) {
+  async function fetchCalendarEvents(year, month) {
     if (!user?.id) return;
+    // Use YYYY-MM-DD formatting without timezone conversion
+    const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
     setCalendarEventsLoading(true);
     try {
       const data = await callAgentEndpoint("/api/agent/calendar-events", {
@@ -2060,7 +2064,11 @@ export default function App() {
         startDate,
         endDate,
       });
-      if (data?.ok) setCalendarEvents(data.events || []);
+      if (data?.ok) {
+        setCalendarEvents(data.events || []);
+      } else {
+        console.warn("calendar-events response not ok:", data);
+      }
     } catch (err) {
       console.error("fetchCalendarEvents error:", err);
     } finally {
@@ -2688,13 +2696,13 @@ export default function App() {
     }
   }, [supabase, user?.id]);
 
-  // ─── Fetch Google Calendar events on mount and when surface is calendar ───
+  // ─── Fetch Google Calendar events on mount ───
   useEffect(() => {
     if (!user?.id) return;
     const now = new Date();
-    const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-    fetchCalendarEvents(startDate, endDate);
+    // Small delay to ensure auth token is ready
+    const timer = setTimeout(() => fetchCalendarEvents(now.getFullYear(), now.getMonth()), 500);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -3153,6 +3161,7 @@ export default function App() {
                   onSnooze={(task) => void snoozeTask(task)}
                   onStartNow={startTaskNow}
                   onRecompute={triggerAutoSchedule}
+                  onMonthChange={fetchCalendarEvents}
                   calendarEvents={calendarEvents}
                   calendarLoading={calendarEventsLoading}
                   optimizedSchedule={optimizedSchedule}

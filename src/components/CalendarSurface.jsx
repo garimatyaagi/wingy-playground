@@ -152,6 +152,7 @@ export default function CalendarSurface({
   onSnooze,
   onStartNow,
   onRecompute,
+  onMonthChange,
   calendarEvents,
   calendarLoading,
   optimizedSchedule,
@@ -284,14 +285,20 @@ export default function CalendarSurface({
   }, [goals]);
 
   const prevMonth = useCallback(() => {
-    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
-    else setViewMonth((m) => m - 1);
-  }, [viewMonth]);
+    const newMonth = viewMonth === 0 ? 11 : viewMonth - 1;
+    const newYear = viewMonth === 0 ? viewYear - 1 : viewYear;
+    setViewMonth(newMonth);
+    setViewYear(newYear);
+    onMonthChange?.(newYear, newMonth);
+  }, [viewMonth, viewYear, onMonthChange]);
 
   const nextMonth = useCallback(() => {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
-    else setViewMonth((m) => m + 1);
-  }, [viewMonth]);
+    const newMonth = viewMonth === 11 ? 0 : viewMonth + 1;
+    const newYear = viewMonth === 11 ? viewYear + 1 : viewYear;
+    setViewMonth(newMonth);
+    setViewYear(newYear);
+    onMonthChange?.(newYear, newMonth);
+  }, [viewMonth, viewYear, onMonthChange]);
 
   const goToToday = useCallback(() => {
     const now = new Date();

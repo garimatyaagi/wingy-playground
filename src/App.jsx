@@ -10,7 +10,7 @@ import {
 } from "@clerk/clerk-react";
 import ExecutionHeader from "./components/ExecutionHeader";
 import TaskDrawer from "./components/TaskDrawer";
-import TodaySurface from "./components/TodaySurface";
+
 import InboxSurface from "./components/InboxSurface";
 import GoalsSurface from "./components/GoalsSurface";
 import AgentSettingsSurface from "./components/AgentSettingsSurface";
@@ -397,7 +397,11 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(null);
   const [toast, setToast] = useState(null);
   const [newGoalTitle, setNewGoalTitle] = useState("");
-  const [activeSurface, setActiveSurface] = useState("today");
+  const [activeSurface, setActiveSurface] = useState("calendar");
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarEventsLoading, setCalendarEventsLoading] = useState(false);
+  const [optimizedSchedule, setOptimizedSchedule] = useState(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
   const [selectedPlanDate, setSelectedPlanDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -2046,6 +2050,45 @@ export default function App() {
     return null;
   }
 
+  // ─── Calendar: fetch Google Calendar events for a month ───
+  async function fetchCalendarEvents(startDate, endDate) {
+    if (!user?.id) return;
+    setCalendarEventsLoading(true);
+    try {
+      const data = await callAgentEndpoint("/api/agent/calendar-events", {
+        userId: user.id,
+        startDate,
+        endDate,
+      });
+      if (data?.ok) setCalendarEvents(data.events || []);
+    } catch (err) {
+      console.error("fetchCalendarEvents error:", err);
+    } finally {
+      setCalendarEventsLoading(false);
+    }
+  }
+
+  // ─── Calendar: trigger AI auto-schedule via recompute ───
+  async function triggerAutoSchedule() {
+    if (!user?.id) return;
+    setScheduleLoading(true);
+    try {
+      const data = await callAgentEndpoint("/api/agent/recompute", {
+        userId: user.id,
+        date: new Date().toISOString(),
+        dailyCapacityMinutes: plannerConstraints?.dailyCapacityMinutes || 180,
+      });
+      if (data?.ok) {
+        setOptimizedSchedule(data.optimizedSchedule || null);
+        showToast("Schedule optimized");
+      }
+    } catch (err) {
+      console.error("triggerAutoSchedule error:", err);
+    } finally {
+      setScheduleLoading(false);
+    }
+  }
+
   function buildCaptureEntry(text, parsed) {
     const parsedType = parsed?.kind || "ambiguous";
     const confidence = Number.isFinite(parsed?.confidence) ? parsed.confidence : 0.5;
@@ -2645,6 +2688,16 @@ export default function App() {
     }
   }, [supabase, user?.id]);
 
+  // ─── Fetch Google Calendar events on mount and when surface is calendar ───
+  useEffect(() => {
+    if (!user?.id) return;
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    fetchCalendarEvents(startDate, endDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   /* ── Realtime sync: replaces old 30s setInterval polling ── */
   useRealtimeSync(supabase, user?.id, {
     onTaskChange: refreshWorkspace,
@@ -3008,7 +3061,7 @@ export default function App() {
             <section className="cardShell loadingCard">
               <p className="subtle">Setting things up...</p>
             </section>
-          ) : goals.length === 0 && activeSurface === "today" ? (
+          ) : goals.length === 0 && activeSurface === "calendar" ? (
             <section className="appSurfaceArea" key="welcome">
               <article className="cardShell welcomeCard">
                 <h2>Welcome to 365 Tasks</h2>
@@ -3043,30 +3096,6 @@ export default function App() {
             </section>
           ) : (
             <section className="appSurfaceArea" key={activeSurface}>
-              {activeSurface === "today" ? (
-                <TodaySurface
-                  dateLabel={formatFriendlyDate(new Date())}
-                  agentStatus={agentStatusLabel}
-                  topPriorities={commandCenter.topPriorities || []}
-                  nextTask={commandCenter.nextTask || null}
-                  dueTodayCount={dueTodayCount}
-                  overdueCount={overdueCount}
-                  blockedCount={blockedCount}
-                  latestNudge={latestAgentNote}
-                  onOpenTask={openTaskDrawer}
-                  onDone={(task) => void toggleTaskDone(task.goalId, task.id)}
-                  onSnooze={(task) => void snoozeTask(task)}
-                  onSplit={(task) => void breakIntoSubtasks(task, { title: task.title })}
-                  onReschedule={(task) => void smartReschedule(task)}
-                  onStartNow={startTaskNow}
-                  onStartSprint={startTaskSprint}
-                  weeklyMomentum={weeklyMomentum}
-                  executionMetrics={executionMetrics}
-                  atRiskTasks={atRiskTasks}
-                  procrastinationSignals={procrastinationSignals}
-                />
-              ) : null}
-
               {activeSurface === "inbox" ? (
                 <InboxSurface
                   simulateText={whatsAppDraft}
@@ -3122,6 +3151,18 @@ export default function App() {
                   onOpenTask={openTaskDrawer}
                   onDone={(task) => void toggleTaskDone(task.goalId, task.id)}
                   onSnooze={(task) => void snoozeTask(task)}
+                  onStartNow={startTaskNow}
+                  onRecompute={triggerAutoSchedule}
+                  calendarEvents={calendarEvents}
+                  calendarLoading={calendarEventsLoading}
+                  optimizedSchedule={optimizedSchedule}
+                  scheduleLoading={scheduleLoading}
+                  weeklyMomentum={weeklyMomentum}
+                  executionMetrics={executionMetrics}
+                  dueTodayCount={dueTodayCount}
+                  overdueCount={overdueCount}
+                  blockedCount={blockedCount}
+                  procrastinationSignals={procrastinationSignals}
                 />
               ) : null}
 
@@ -3170,21 +3211,8 @@ export default function App() {
         <nav className="bottomNav">
           <button
             type="button"
-            className={activeSurface === "today" ? "bottomNavTab active" : "bottomNavTab"}
-            onClick={() => { setActiveSurface("today"); refreshWorkspace(); }}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-              <line x1="9" y1="2" x2="9" y2="6" />
-              <line x1="15" y1="2" x2="15" y2="6" />
-            </svg>
-            <span>Today</span>
-          </button>
-          <button
-            type="button"
             className={activeSurface === "calendar" ? "bottomNavTab active" : "bottomNavTab"}
-            onClick={() => setActiveSurface("calendar")}
+            onClick={() => { setActiveSurface("calendar"); refreshWorkspace(); }}
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -3197,7 +3225,7 @@ export default function App() {
               <line x1="8" y1="18" x2="8" y2="18.01" />
               <line x1="12" y1="18" x2="12" y2="18.01" />
             </svg>
-            <span>Calendar</span>
+            <span>Today</span>
           </button>
           <button
             type="button"

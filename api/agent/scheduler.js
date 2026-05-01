@@ -425,7 +425,7 @@ export default async function handler(req, res) {
           // Enrich each goal with milestones and completion rate
           const enrichedGoals = [];
           for (const g of goals) {
-            const milestones = await listMilestonesForGoal(g.id);
+            const milestones = await listMilestonesForGoal(g.id, profile.userId);
             const stats = await countGoalTaskCompletions(profile.userId, g.id, 7);
             enrichedGoals.push({
               ...g,

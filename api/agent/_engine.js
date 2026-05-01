@@ -951,7 +951,7 @@ export async function recomputeDailyPlan({
   const progressMap = new Map();
   for (const t of multiDayTasks) {
     try {
-      const occurrences = await listTaskOccurrences(t.id);
+      const occurrences = await listTaskOccurrences(t.id, userId);
       progressMap.set(t.id, getMultiDayProgress(t, occurrences));
     } catch { /* ignore */ }
   }
@@ -1078,7 +1078,7 @@ export async function recomputeDailyPlan({
     await logTaskEvent(task.id, "reprioritized", {
       priorityScore: task.priorityScore,
       date: dateKey,
-    });
+    }, userId);
   }
 
   // ─── Calendar-Aware Time-Block Optimization ───
@@ -1496,7 +1496,7 @@ async function ensureGoalsDecomposed(userId) {
   // 4. Decompose any long-term goals that have zero milestones
   const allLtGoals = [...ltGoals, ...newlyCreated];
   for (const goal of allLtGoals) {
-    const milestones = await listMilestonesForGoal(goal.id);
+    const milestones = await listMilestonesForGoal(goal.id, userId);
     if (milestones.length > 0) continue;
 
     const decomposition = await llmDecomposeGoal(goal.title, goal.description || "", goal.target_date, userId);
@@ -1573,7 +1573,7 @@ export async function generateGoalDailyTasks({ userId, date = new Date() }) {
     if (stats.total >= 3 && completionRate < 0.3) continue;
 
     // Find the current active milestone
-    const milestones = await listMilestonesForGoal(goal.id);
+    const milestones = await listMilestonesForGoal(goal.id, userId);
     const currentMilestone = milestones.find((m) => m.status === "pending" || m.status === "in_progress");
     if (!currentMilestone) continue;
 

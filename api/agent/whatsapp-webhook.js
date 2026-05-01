@@ -489,7 +489,7 @@ export default async function handler(req, res) {
         await updateTaskStep(match.task.id, match.task.goalId, {
           ...match.task, done: true, status: "done", completedAt: nowIso, completionConfidence: 1,
         });
-        await logTaskEvent(match.task.id, "completed", { source: "whatsapp", rawText });
+        await logTaskEvent(match.task.id, "completed", { source: "whatsapp", rawText }, userId);
         // Rebuild context after completion for accurate state
         const freshCtx = await buildMessageContext(userId, new Date());
         const calendarEvents = await fetchCalendarContext(userId);
@@ -539,13 +539,14 @@ export default async function handler(req, res) {
                 actualMinutes: Number(task.estimatedMinutes || 20),
                 skipped: false,
                 completedAt: nowIso,
+                userId,
               });
             } else {
               await updateTaskStep(task.id, task.goalId, {
                 ...task, done: true, status: "done", completedAt: nowIso, completionConfidence: 0.9,
               });
             }
-            await logTaskEvent(task.id, "completed", { source: "whatsapp", rawText, via: "evening_checkin" });
+            await logTaskEvent(task.id, "completed", { source: "whatsapp", rawText, via: "evening_checkin" }, userId);
             actionsTaken.push({ type: "task_completed", task });
             updatedIds.push(task.id);
           } else if (result.status === "skipped") {
@@ -559,7 +560,7 @@ export default async function handler(req, res) {
                 rescheduleCount: Number(task.rescheduleCount || 0) + 1,
               });
             }
-            await logTaskEvent(task.id, "snoozed", { source: "whatsapp", via: "evening_checkin", reason: "skipped" });
+            await logTaskEvent(task.id, "snoozed", { source: "whatsapp", via: "evening_checkin", reason: "skipped" }, userId);
             actionsTaken.push({ type: "task_rescheduled", task, newDate: tomorrowIso });
             updatedIds.push(task.id);
           }
@@ -713,7 +714,7 @@ export default async function handler(req, res) {
             rawText,
             parseConfidence: parsedResult.confidence,
             recurring: Boolean(draft.isRecurring),
-          });
+          }, userId);
           await logParsedAction({ captureId, userId, actionType: "create_task", actionPayload: { title: draft.title }, targetTaskId: created.id, result: "created", confidence: parsedResult.confidence });
           actionsTaken.push({ type: "task_created", task: { title: draft.title, id: created.id } });
         }
@@ -855,10 +856,11 @@ export default async function handler(req, res) {
               actualMinutes: Number(match.task.estimatedMinutes || 20),
               skipped: false,
               completedAt: nowIso,
+              userId,
             });
             await logTaskEvent(match.task.id, "completed", {
               source: "whatsapp", kind: "recurring_occurrence", rawText, confidence: parsedResult.confidence,
-            });
+            }, userId);
           } else {
             const update = await updateTaskStep(match.task.id, match.task.goalId, {
               ...match.task, done: true, status: "done", completedAt: nowIso, completionConfidence: parsedResult.confidence,
@@ -871,7 +873,7 @@ export default async function handler(req, res) {
             }
             await logTaskEvent(match.task.id, "completed", {
               source: "whatsapp", rawText, confidence: parsedResult.confidence,
-            });
+            }, userId);
           }
           updatedTaskIds.push(match.task.id);
           actionsTaken.push({ type: "task_completed", task: match.task });
@@ -904,6 +906,7 @@ export default async function handler(req, res) {
               status: "pending",
               skipped: true,
               rescheduledTo: nextIso.slice(0, 10),
+              userId,
             });
           } else {
             await updateTaskStep(match.task.id, match.task.goalId, {
@@ -915,7 +918,7 @@ export default async function handler(req, res) {
           updatedTaskIds.push(match.task.id);
           await logTaskEvent(match.task.id, "snoozed", {
             source: "whatsapp", rawText, rescheduleDays: action.rescheduleDays || 1,
-          });
+          }, userId);
           actionsTaken.push({ type: "task_rescheduled", task: match.task, newDate: nextIso });
           await logParsedAction({ captureId, userId, actionType: "reschedule_task", actionPayload: { days: action.rescheduleDays }, targetTaskId: match.task.id, result: "task_rescheduled", confidence: parsedResult.confidence });
         } else if (match.status === "ambiguous") {
@@ -942,7 +945,7 @@ export default async function handler(req, res) {
             ...match.task, done: false, status: targetStatus,
           });
           updatedTaskIds.push(match.task.id);
-          await logTaskEvent(match.task.id, targetStatus, { source: "whatsapp", rawText });
+          await logTaskEvent(match.task.id, targetStatus, { source: "whatsapp", rawText }, userId);
           actionsTaken.push({ type: isCancellation ? "task_cancelled" : "task_archived", task: match.task });
           await logParsedAction({ captureId, userId, actionType: action.intent, targetTaskId: match.task.id, result: isCancellation ? "task_cancelled" : "task_archived", confidence: parsedResult.confidence });
         } else {

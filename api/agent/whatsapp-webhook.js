@@ -38,6 +38,8 @@ import {
 import {
   buildMessageContext,
   buildEveningCheckin,
+  buildMorningBrief,
+  buildMorningBriefContext,
   buildRichResponse,
   generateNudge,
   parseEveningResponse,
@@ -52,7 +54,7 @@ import {
   validateTwilioSignature,
   sendWhatsAppMessage,
 } from "./_twilio.js";
-import { getUpcomingEvents } from "./_calendar.js";
+import { getUpcomingEvents, getTodayEvents } from "./_calendar.js";
 import { llmDecomposeGoal } from "./_llm.js";
 import { downloadTwilioMedia, transcribeAudio } from "./_transcription.js";
 import { handleOnboardingChat } from "./_onboarding-chat.js";
@@ -107,7 +109,22 @@ async function firePendingNudgePulses(userId, whatsAppNumber) {
           const planState = await recomputeDailyPlan({ userId, date: new Date(), calendarEvents, profile });
 
           let body = null;
-          if (messageType === "midday_nudge" || messageType === "afternoon_followup") {
+          if (messageType === "morning_brief") {
+            const todayEvents = profile.google_refresh_token
+              ? await getTodayEvents(profile.google_refresh_token, profile.timezone || "Asia/Kolkata").catch(() => [])
+              : [];
+            const briefPlanState = await recomputeDailyPlan({ userId, date: new Date(), calendarEvents: todayEvents, profile });
+            if (briefPlanState.goalTasks?.length > 0) {
+              briefPlanState.goalTaskContext = briefPlanState.goalTasks.map((gt) =>
+                `[${gt.goalTitle || "Goal"}] ${gt.milestoneTitle || gt.text || ""}`
+              );
+            }
+            const briefContext = await buildMorningBriefContext({
+              userId, date: new Date(), planState: briefPlanState, calendarEvents: todayEvents, profile,
+            }).catch(() => null);
+            body = await llmMorningBrief(briefPlanState, todayEvents, profile, briefContext).catch(() => null);
+            if (!body) body = buildMorningBrief({ planState: briefPlanState, tone: profile.tone || "firm" });
+          } else if (messageType === "midday_nudge" || messageType === "afternoon_followup") {
             body = await llmNudge(planState, messageType, profile, calendarEvents).catch(() => null);
             if (!body) {
               const nudge = await generateNudge({ userId, tone: profile.tone || "firm", now: new Date() });

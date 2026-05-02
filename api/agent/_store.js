@@ -1025,7 +1025,7 @@ export async function listAgentMessagesForDate(userId, dateKey) {
   const toIso = `${dateKey}T23:59:59.999Z`;
   const query = await supabase
     .from("agent_messages")
-    .select("id, type, body, related_task_ids, sent_at")
+    .select("id, type, body, related_task_ids, sent_at, metadata")
     .eq("user_id", userId)
     .gte("sent_at", fromIso)
     .lte("sent_at", toIso)

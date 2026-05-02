@@ -158,17 +158,23 @@ async function scheduleAllRemainingNudges(profile, sentTypes, now) {
 
 async function sendAndLog({ userId, to, type, body, relatedTaskIds = [], metadata = {} }) {
   const sent = await sendWhatsAppMessage({ to, text: body });
-  await logAgentMessage({
-    userId,
-    type,
-    body,
-    relatedTaskIds,
-    metadata: {
-      ...metadata,
-      scheduler: true,
-      sent,
-    },
-  });
+  // Only log if Twilio confirmed delivery — prevents phantom "sent" records
+  // from partial executions (504 timeouts) blocking future sends all day.
+  if (sent?.ok !== false) {
+    await logAgentMessage({
+      userId,
+      type,
+      body,
+      relatedTaskIds,
+      metadata: {
+        ...metadata,
+        scheduler: true,
+        sent,
+      },
+    });
+  } else {
+    console.error("sendAndLog_skipped_logging", { userId, type, reason: "twilio_send_failed", sent });
+  }
   return sent;
 }
 
@@ -185,9 +191,18 @@ export default async function handler(req, res) {
   const queryToken = String(req.query?.token || "").trim();
   const tokenCandidate = bearerToken || queryToken;
 
-  const isCronAuth = cronSecret && tokenCandidate &&
-    tokenCandidate.length === cronSecret.length &&
-    crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
+  let isCronAuth = false;
+  if (cronSecret && tokenCandidate && tokenCandidate.length === cronSecret.length) {
+    isCronAuth = crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
+  }
+
+  // Vercel cron requests include this header — allow if CRON_SECRET is not configured
+  // so the scheduler doesn't silently break when env vars are missing.
+  const isVercelCron = req.headers["x-vercel-cron"] === "1";
+  if (!isCronAuth && isVercelCron && !cronSecret) {
+    console.warn("scheduler_auth_warning: CRON_SECRET env var is not set — allowing Vercel cron request without token verification. Set CRON_SECRET in Vercel env vars for security.");
+    isCronAuth = true;
+  }
 
   let isUserAuth = false;
   if (!isCronAuth) {
@@ -204,17 +219,28 @@ export default async function handler(req, res) {
       hasQueryToken: Boolean(queryToken),
       queryTokenLen: queryToken.length,
       candidateLen: tokenCandidate.length,
-      lengthMatch: tokenCandidate.length === cronSecret.length,
+      lengthMatch: cronSecret ? tokenCandidate.length === cronSecret.length : "no_secret",
+      isVercelCron,
+      method: req.method,
+      host: req.headers.host || "",
     });
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   const now = new Date();
+  // Global deadline: stop processing 10s before Vercel kills the function.
+  // This ensures we always return a response with partial results instead of a 504.
+  const MAX_DURATION_MS = 170_000; // 170s (maxDuration is 180s)
+  const deadline = now.getTime() + MAX_DURATION_MS;
   const forceType = String(req.query?.force || req.body?.force || "").trim();
   const profiles = await listActiveProfiles();
   const report = [];
 
   for (const profile of profiles) {
+   if (Date.now() >= deadline) {
+    report.push({ skipped: true, reason: "deadline_reached", remaining: profiles.length - report.length });
+    break;
+   }
    try {
     if (!profile.autoplanEnabled) continue;
     // Skip users whose bot is paused
@@ -222,7 +248,16 @@ export default async function handler(req, res) {
     if (pausedUntil) continue;
     const local = localTimeParts(now, profile.timezone || "Asia/Kolkata");
     const sentToday = await listAgentMessagesForDate(profile.userId, local.dateKey);
-    const sentTypes = new Set((sentToday || []).map((entry) => entry.type));
+    // Only count messages that were actually delivered by Twilio.
+    // Previous runs may have timed out (504) after logging but before Twilio confirmed.
+    const sentTypes = new Set(
+      (sentToday || [])
+        .filter((entry) => {
+          const meta = typeof entry.metadata === "string" ? JSON.parse(entry.metadata || "{}") : (entry.metadata || {});
+          return meta.sent?.ok !== false;
+        })
+        .map((entry) => entry.type)
+    );
     const profileReport = {
       userId: profile.userId,
       timezone: profile.timezone,

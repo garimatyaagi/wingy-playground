@@ -242,7 +242,16 @@ export default async function handler(req, res) {
     if (pausedUntil) continue;
     const local = localTimeParts(now, profile.timezone || "Asia/Kolkata");
     const sentToday = await listAgentMessagesForDate(profile.userId, local.dateKey);
-    const sentTypes = new Set((sentToday || []).map((entry) => entry.type));
+    // Only count messages that were actually delivered by Twilio.
+    // Previous runs may have timed out (504) after logging but before Twilio confirmed.
+    const sentTypes = new Set(
+      (sentToday || [])
+        .filter((entry) => {
+          const meta = typeof entry.metadata === "string" ? JSON.parse(entry.metadata || "{}") : (entry.metadata || {});
+          return meta.sent?.ok !== false;
+        })
+        .map((entry) => entry.type)
+    );
     const profileReport = {
       userId: profile.userId,
       timezone: profile.timezone,

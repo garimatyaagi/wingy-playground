@@ -158,17 +158,23 @@ async function scheduleAllRemainingNudges(profile, sentTypes, now) {
 
 async function sendAndLog({ userId, to, type, body, relatedTaskIds = [], metadata = {} }) {
   const sent = await sendWhatsAppMessage({ to, text: body });
-  await logAgentMessage({
-    userId,
-    type,
-    body,
-    relatedTaskIds,
-    metadata: {
-      ...metadata,
-      scheduler: true,
-      sent,
-    },
-  });
+  // Only log if Twilio confirmed delivery — prevents phantom "sent" records
+  // from partial executions (504 timeouts) blocking future sends all day.
+  if (sent?.ok !== false) {
+    await logAgentMessage({
+      userId,
+      type,
+      body,
+      relatedTaskIds,
+      metadata: {
+        ...metadata,
+        scheduler: true,
+        sent,
+      },
+    });
+  } else {
+    console.error("sendAndLog_skipped_logging", { userId, type, reason: "twilio_send_failed", sent });
+  }
   return sent;
 }
 

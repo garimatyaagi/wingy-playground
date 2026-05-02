@@ -124,11 +124,18 @@ function localTimeToUtcToday(timeStr, timezone, now = new Date()) {
   return new Date(targetLocalMs + offsetMs);
 }
 
-// Schedule pulses for the remaining nudge types that won't fire during this cron run.
-// Called after the morning brief so midday/afternoon/evening nudges fire later via webhook.
-async function scheduleRemainingNudges(profile, sentTypes, now) {
+// Schedule pulses for ALL nudge types that haven't been sent yet during this cron run.
+// On Vercel Hobby, cron fires once/day (often before morning brief window), so we
+// schedule everything — including morning_brief — as pulses for webhook delivery.
+async function scheduleAllRemainingNudges(profile, sentTypes, now) {
   const timezone = profile.timezone || "Asia/Kolkata";
+  // Check weekends — don't schedule pulses if weekends are disabled
+  if (!profile.weekendsEnabled) {
+    const local = localTimeParts(now, timezone);
+    if (local.weekday === "sat" || local.weekday === "sun") return [];
+  }
   const nudgeTypes = [
+    { type: "morning_brief", time: profile.morningBriefTime || "08:00" },
     { type: "midday_nudge", time: profile.middayNudgeTime || "12:30" },
     { type: "afternoon_followup", time: profile.afternoonFollowupTime || "16:00" },
     { type: "evening_checkin", time: profile.eveningCheckinTime || "20:30" },
@@ -143,7 +150,7 @@ async function scheduleRemainingNudges(profile, sentTypes, now) {
       await createPulse(profile.userId, fireAt.toISOString(), `scheduled_nudge:${nudge.type}`, nudge.type);
       scheduled.push({ type: nudge.type, fireAt: fireAt.toISOString() });
     } catch (err) {
-      console.error("scheduleRemainingNudges failed", { userId: profile.userId, type: nudge.type, error: err.message });
+      console.error("scheduleAllRemainingNudges failed", { userId: profile.userId, type: nudge.type, error: err.message });
     }
   }
   return scheduled;
@@ -266,16 +273,19 @@ export default async function handler(req, res) {
       });
       profileReport.actions.push({ type: "morning_brief", sent });
       sentTypes.add("morning_brief");
+    }
 
-      // On Vercel Hobby, cron runs once/day. Pre-schedule the remaining nudges as pulses
-      // so they fire when the user interacts via WhatsApp webhook.
+    // On Vercel Hobby, cron runs once/day (often before morning brief window).
+    // Pre-schedule ALL unsent nudges as pulses so they fire via WhatsApp webhook.
+    // This includes morning_brief if the cron fired too early.
+    if (profile.whatsAppNumber) {
       try {
-        const scheduledPulses = await scheduleRemainingNudges(profile, sentTypes, now);
+        const scheduledPulses = await scheduleAllRemainingNudges(profile, sentTypes, now);
         if (scheduledPulses.length > 0) {
           profileReport.actions.push({ type: "scheduled_pulses", pulses: scheduledPulses });
         }
       } catch (err) {
-        console.error("scheduleRemainingNudges error", { userId: profile.userId, error: err.message });
+        console.error("scheduleAllRemainingNudges error", { userId: profile.userId, error: err.message });
       }
     }
 

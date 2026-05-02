@@ -77,19 +77,20 @@ function shouldSend(profile, type, local, sentTypes) {
   if (sentTypes.has(type)) return false;
   if (!profile.weekendsEnabled && (local.weekday === "sat" || local.weekday === "sun")) return false;
 
+  const CRON_INTERVAL = 5; // cron fires every 5 minutes
+  const snap = (m) => Math.floor(m / CRON_INTERVAL) * CRON_INTERVAL; // round down to nearest cron tick
   const schedule = {
-    morning_brief: parseTimeToMinutes(profile.morningBriefTime, "08:00"),
-    midday_nudge: parseTimeToMinutes(profile.middayNudgeTime, "12:30"),
-    afternoon_followup: parseTimeToMinutes(profile.afternoonFollowupTime, "16:00"),
-    evening_checkin: parseTimeToMinutes(profile.eveningCheckinTime, "20:30"),
+    morning_brief: snap(parseTimeToMinutes(profile.morningBriefTime, "08:00")),
+    midday_nudge: snap(parseTimeToMinutes(profile.middayNudgeTime, "12:30")),
+    afternoon_followup: snap(parseTimeToMinutes(profile.afternoonFollowupTime, "16:00")),
+    evening_checkin: snap(parseTimeToMinutes(profile.eveningCheckinTime, "20:30")),
   };
   const orderedTypes = ["morning_brief", "midday_nudge", "afternoon_followup", "evening_checkin"];
   const idx = orderedTypes.indexOf(type);
   const targetMinutes = schedule[type];
-  const nextTarget = idx < orderedTypes.length - 1 ? schedule[orderedTypes[idx + 1]] : targetMinutes + 180;
+  const nextTarget = idx < orderedTypes.length - 1 ? schedule[orderedTypes[idx + 1]] : Math.min(targetMinutes + 180, 1440);
 
-  // Send if we're past the scheduled time but before the next message type's time
-  // This catch-up window handles unreliable cron intervals (GitHub Actions can skip hours)
+  // Send if we're past the scheduled time (snapped to cron interval) but before the next type's time
   return local.minuteOfDay >= targetMinutes && local.minuteOfDay < nextTarget;
 }
 

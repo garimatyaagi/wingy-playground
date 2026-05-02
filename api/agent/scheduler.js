@@ -185,9 +185,18 @@ export default async function handler(req, res) {
   const queryToken = String(req.query?.token || "").trim();
   const tokenCandidate = bearerToken || queryToken;
 
-  const isCronAuth = cronSecret && tokenCandidate &&
-    tokenCandidate.length === cronSecret.length &&
-    crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
+  let isCronAuth = false;
+  if (cronSecret && tokenCandidate && tokenCandidate.length === cronSecret.length) {
+    isCronAuth = crypto.timingSafeEqual(Buffer.from(tokenCandidate), Buffer.from(cronSecret));
+  }
+
+  // Vercel cron requests include this header — allow if CRON_SECRET is not configured
+  // so the scheduler doesn't silently break when env vars are missing.
+  const isVercelCron = req.headers["x-vercel-cron"] === "1";
+  if (!isCronAuth && isVercelCron && !cronSecret) {
+    console.warn("scheduler_auth_warning: CRON_SECRET env var is not set — allowing Vercel cron request without token verification. Set CRON_SECRET in Vercel env vars for security.");
+    isCronAuth = true;
+  }
 
   let isUserAuth = false;
   if (!isCronAuth) {
@@ -204,17 +213,28 @@ export default async function handler(req, res) {
       hasQueryToken: Boolean(queryToken),
       queryTokenLen: queryToken.length,
       candidateLen: tokenCandidate.length,
-      lengthMatch: tokenCandidate.length === cronSecret.length,
+      lengthMatch: cronSecret ? tokenCandidate.length === cronSecret.length : "no_secret",
+      isVercelCron,
+      method: req.method,
+      host: req.headers.host || "",
     });
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   const now = new Date();
+  // Global deadline: stop processing 10s before Vercel kills the function.
+  // This ensures we always return a response with partial results instead of a 504.
+  const MAX_DURATION_MS = 170_000; // 170s (maxDuration is 180s)
+  const deadline = now.getTime() + MAX_DURATION_MS;
   const forceType = String(req.query?.force || req.body?.force || "").trim();
   const profiles = await listActiveProfiles();
   const report = [];
 
   for (const profile of profiles) {
+   if (Date.now() >= deadline) {
+    report.push({ skipped: true, reason: "deadline_reached", remaining: profiles.length - report.length });
+    break;
+   }
    try {
     if (!profile.autoplanEnabled) continue;
     // Skip users whose bot is paused

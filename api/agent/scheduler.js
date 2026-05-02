@@ -77,21 +77,18 @@ function shouldSend(profile, type, local, sentTypes) {
   if (sentTypes.has(type)) return false;
   if (!profile.weekendsEnabled && (local.weekday === "sat" || local.weekday === "sun")) return false;
 
-  const CRON_INTERVAL = 5; // cron fires every 5 minutes
-  const snap = (m) => Math.floor(m / CRON_INTERVAL) * CRON_INTERVAL; // round down to nearest cron tick
-  const schedule = {
-    morning_brief: snap(parseTimeToMinutes(profile.morningBriefTime, "08:00")),
-    midday_nudge: snap(parseTimeToMinutes(profile.middayNudgeTime, "12:30")),
-    afternoon_followup: snap(parseTimeToMinutes(profile.afternoonFollowupTime, "16:00")),
-    evening_checkin: snap(parseTimeToMinutes(profile.eveningCheckinTime, "20:30")),
-  };
-  const orderedTypes = ["morning_brief", "midday_nudge", "afternoon_followup", "evening_checkin"];
-  const idx = orderedTypes.indexOf(type);
-  const targetMinutes = schedule[type];
-  const nextTarget = idx < orderedTypes.length - 1 ? schedule[orderedTypes[idx + 1]] : Math.min(targetMinutes + 180, 1440);
+  const targetMinutes = parseTimeToMinutes(
+    { morning_brief: profile.morningBriefTime,
+      midday_nudge: profile.middayNudgeTime,
+      afternoon_followup: profile.afternoonFollowupTime,
+      evening_checkin: profile.eveningCheckinTime,
+    }[type],
+    { morning_brief: "08:00", midday_nudge: "12:30", afternoon_followup: "16:00", evening_checkin: "20:30" }[type]
+  );
 
-  // Send if we're past the scheduled time (snapped to cron interval) but before the next type's time
-  return local.minuteOfDay >= targetMinutes && local.minuteOfDay < nextTarget;
+  // Simple: if the scheduled time has passed and it hasn't been sent today, send it.
+  // sentTypes (line 77) prevents duplicates. No windows, no snapping, no missed sends.
+  return local.minuteOfDay >= targetMinutes;
 }
 
 // Convert a local time string (e.g. "12:30") in the user's timezone to a UTC Date for today.

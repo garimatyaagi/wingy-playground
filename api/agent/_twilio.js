@@ -98,8 +98,9 @@ export async function sendWhatsAppMessage({ to, text }) {
   const fromAddress = toWhatsAppAddress(process.env.TWILIO_WHATSAPP_FROM || "");
 
   if (!accountSid || !authToken || !fromAddress) {
+    console.error("sendWhatsAppMessage_mock", { reason: "missing_twilio_credentials", hasAccountSid: Boolean(accountSid), hasAuthToken: Boolean(authToken), hasFromAddress: Boolean(fromAddress) });
     return {
-      ok: true,
+      ok: false,
       sent: false,
       mock: true,
       reason: "missing_twilio_credentials",

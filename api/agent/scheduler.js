@@ -308,19 +308,10 @@ export default async function handler(req, res) {
       sentTypes.add("morning_brief");
     }
 
-    // On Vercel Hobby, cron runs once/day (often before morning brief window).
-    // Pre-schedule ALL unsent nudges as pulses so they fire via WhatsApp webhook.
-    // This includes morning_brief if the cron fired too early.
-    if (profile.whatsAppNumber) {
-      try {
-        const scheduledPulses = await scheduleAllRemainingNudges(profile, sentTypes, now);
-        if (scheduledPulses.length > 0) {
-          profileReport.actions.push({ type: "scheduled_pulses", pulses: scheduledPulses });
-        }
-      } catch (err) {
-        console.error("scheduleAllRemainingNudges error", { userId: profile.userId, error: err.message });
-      }
-    }
+    // Nudge pulse scheduling removed — on Pro plan, the */5 cron + shouldSend()
+    // handles all nudge delivery directly. Pulse scheduling was a Hobby-plan
+    // workaround that caused infinite retry loops (creating new pulses every
+    // 5 minutes when sends failed, burning through Twilio rate limits).
 
     if (forceType === "midday_nudge" || shouldSend(profile, "midday_nudge", local, sentTypes)) {
       const planState = await recomputeDailyPlan({ userId: profile.userId, date: now });
